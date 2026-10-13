@@ -1,0 +1,19 @@
+.DS_Store
+/.build/
+/.swiftpm/
+/Packages/
+/Package.resolved
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# Oracle build: official UnRAR source, never committed.
+/Tools/oracle/.build/
+
+# Fuzzer output.
+/Fuzz/.build/
+/Fuzz/corpus/
+crash-*
+leak-*
+timeout-*
+oom-*

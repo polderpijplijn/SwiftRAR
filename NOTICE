@@ -1,0 +1,31 @@
+SwiftRAR
+Copyright (c) 2026 Maarten de Kreij
+
+License split
+-------------
+  RARCore    (Sources/RARCore)    MIT, see LICENSE. Original code.
+  CBZWriter  (Sources/CBZWriter)  MIT, see LICENSE. Original code.
+  SwiftRAR   (Sources/SwiftRAR)   MIT, see LICENSE. Original code.
+  RARDecode  (Sources/RARDecode)  unRAR license, see Sources/RARDecode/LICENSE-UNRAR.
+  Tests, Tools, Fuzz              MIT, see LICENSE.
+
+RARDecode is (or will become) a Swift port of the decompression code in the
+UnRAR source by Alexander L. Roshal / RARLAB (https://www.rarlab.com). The
+unRAR license requires the following paragraph to be reproduced:
+
+   UnRAR source code may be used in any software to handle
+   RAR archives without limitations free of charge, but cannot be
+   used to develop RAR (WinRAR) compatible archiver and to
+   re-create RAR compression algorithm, which is proprietary.
+   Distribution of modified UnRAR source code in separate form
+   or as a part of other software is permitted, provided that
+   full text of this paragraph, starting from "UnRAR source code"
+   words, is included in license, or in documentation if license
+   is not available, and in source code comments of resulting package.
+
+SwiftRAR is a reader only. It does not and must never create or compress RAR
+archives.
+
+The UnRAR source itself is not part of this repository.
+Tools/oracle/build-unrar.sh downloads it (UnRAR 7.3.1) solely to build the
+official unrar binary as a test oracle; it is never linked into the package.

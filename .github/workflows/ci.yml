@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build unrar oracle
+        # Downloads RARLAB's UnRAR source and builds it as a test oracle only.
+        # If rarlab.com is unreachable, oracle tests are skipped, not failed.
+        continue-on-error: true
+        run: echo "SWIFTRAR_UNRAR=$(Tools/oracle/build-unrar.sh --build)" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
