@@ -1,6 +1,7 @@
 # Phase 7: trustworthy CI (issue #3, P0)
 
-Status: approved 2026-10-13 (Linux for fuzzing); section 1 in progress.
+Status: approved 2026-10-13. Section 1 done; section 3 reduced (see there);
+section 2 done; section 3 (differential check) next.
 
 Issue #3 P0 step 1 (the `UInt8` literal that broke CI) is done in 539cdf2.
 This phase covers the rest of P0, which also is roadmap phase 7:
@@ -8,27 +9,16 @@ This phase covers the rest of P0, which also is roadmap phase 7:
 1. a toolchain matrix plus an iOS build check, and a Swift 6 strict
    concurrency assessment;
 2. a required oracle job whose success proves the oracle comparisons ran;
-3. bounded, scheduled fuzzing with retained crash inputs and a differential
-   check against the pinned UnRAR oracle.
+3. ~~bounded, scheduled fuzzing in CI~~ dropped; a one-off local
+   differential check against the pinned UnRAR oracle instead.
 
 Everything else in #3 (extraction facade, documentation, licensing table,
 compatibility, benchmarks) stays out of this phase.
 
 ## Cost constraint
 
-The repository is private. GitHub bills macOS minutes at 10x and Linux at
-1x. The current single macOS job is fine; three macOS jobs on every push plus
-a nightly 30-minute macOS fuzz run would use up the free allowance within
-days. The plan therefore:
-
-- keeps per-push work on macOS small (one job per toolchain, oracle built once
-  and cached);
-- runs fuzzing on **Linux** (`swift:6.x` container, where `-sanitize=fuzzer`
-  works out of the box with no toolchain install), if the package builds on
-  Linux. The sources only import Foundation, so it should; step 4 checks it.
-  If Linux turns out to be impractical, fall back to a weekly macOS run with a
-  short time budget, not the Mac mini (self-hosted runners have overloaded it
-  before).
+The repository is private. GitHub bills macOS minutes at 10x. Per-push work
+on macOS stays small: one job per toolchain plus one iOS build.
 
 ## 1. Toolchain matrix and iOS build (`ci.yml`)
 
@@ -66,65 +56,48 @@ Proof that the variable works: run the suite locally with the variable set and
 the oracle hidden (`SWIFTRAR_UNRAR=/nonexistent`, local build moved aside):
 it must fail. Then with the oracle: it must pass with zero oracle skips.
 
-## 3. Scheduled fuzzing (`fuzz.yml`)
+## 3. Fuzzing: no CI schedule (decided 2026-10-13)
 
-- Triggers: `schedule` (nightly) and `workflow_dispatch` with a duration
-  input. Default budget 20 minutes (`-max_total_time=1200`).
-- Corpus: seeded from `Tests/Fixtures/*.rar` plus `Fuzz/corpus`, carried
-  between runs with `actions/cache`. Merged (`-merge=1`) at the end so it
-  does not grow without bound.
-- Crash inputs: `-artifact_prefix=artifacts/`; on failure the job uploads
-  `artifacts/` and fails. Reproduce with `Fuzz/build.sh` and then
-  `SwiftRARFuzz <crash-file>`; the README gets those two lines.
-- Fixed crashes become regression tests: the crash file goes into
-  `Tests/Fixtures/regressions/`, and one test runs every file there through
-  `RARArchive` and `convertToCBZ` and expects a result or a thrown error.
-  That test is added now, with an empty directory, so the route exists.
-- `Fuzz/build.sh` learns Linux: on Linux it uses the toolchain on PATH
-  instead of looking for an `.xctoolchain`.
+Maarten decided against scheduled fuzzing in CI. The code only changes when
+it is worked on, the harness has run after every phase without a finding,
+and a nightly run on unchanged code mostly costs minutes. What stays:
 
-### Differential check
+- The existing rule in `CLAUDE.md`: fuzz locally (`Fuzz/build.sh run`)
+  after every decoder change and before a new copy goes into Grim Reader.
+  Any `crash-*` file becomes a regression test.
+- A one-off **differential check**, run by hand: every input in the fuzz
+  corpus goes through `convertToCBZ` and through the pinned unrar
+  (`unrar p -inul` per entry). A finding is SwiftRAR accepting what unrar
+  rejects, or both accepting with different bytes. SwiftRAR refusing what
+  unrar accepts (limits, unsupported features) is only counted. This catches
+  silent wrong output, which the crash-only fuzzer cannot. The tool lives in
+  the `Fuzz` package as `SwiftRARDiff` if it is worth keeping, otherwise
+  as a script in the scratchpad; the outcome is recorded below either way.
 
-libFuzzer cannot call unrar per input cheaply, so the differential check runs
-after the fuzz run, over the merged corpus:
-
-- New executable `SwiftRARDiff` in the `Fuzz` package (normal build, no
-  sanitizers): for each input, run `convertToCBZ` into memory and
-  `unrar p -inul` per entry, and compare.
-- It fails on: SwiftRAR succeeds where unrar reports an error, or both
-  succeed and the bytes differ. SwiftRAR refusing what unrar accepts is
-  expected (limits, unsupported features) and only counted in the summary.
-- Mismatching inputs are uploaded like crash inputs.
-- The oracle is the same pinned UnRAR 7.3.1 source, built on Linux by
-  `build-unrar.sh` (its makefile builds on Linux as is).
+Issue #3 gets a comment that scheduled fuzzing is left out on purpose, and
+why.
 
 ## Files
 
-- `.github/workflows/ci.yml`: matrix, oracle cache, required-oracle leg,
-  iOS build (and the strict-concurrency step if section 1 allows).
-- `.github/workflows/fuzz.yml`: new.
-- `Tests/SwiftRARTests/Support/Oracle.swift` and the guards in
+- `.github/workflows/ci.yml`: matrix, iOS build, strict concurrency (done);
+  required-oracle leg with cached oracle.
+- `Tests/SwiftRARTests/Support/Oracle.swift` and the skip sites in
   `FixtureTests`, `FilterTests`, `PPMdTests`, `Unpack29Tests`: skip-or-fail.
-- `Tests/SwiftRARTests/RegressionTests.swift` + `Tests/Fixtures/regressions/`.
-- `Fuzz/Package.swift`, `Fuzz/Sources/SwiftRARDiff/`, `Fuzz/build.sh`.
-- `README.md` (reproduce a crash), `CLAUDE.md` (next step, roadmap).
+- `CLAUDE.md`: next step, roadmap.
 
 ## Order of work
 
-1. Skip-or-fail helper, proved against the hidden oracle locally.
-2. Regression test with its (empty) directory.
-3. `ci.yml` matrix and iOS build; push and read the run.
-4. Linux check: the fuzz workflow first only builds the package and the
-   harness on Linux (`workflow_dispatch`), then fuzzing, then the
-   differential step. Run it once by hand with a short budget.
-5. Strict-concurrency assessment, recorded below.
-6. Comment on #3 with what P0 now covers; #3 stays open for P1/P2.
+1. Matrix, iOS build, strict concurrency (done, 2d5d10d).
+2. Skip-or-fail helper, proved against the hidden oracle locally; then the
+   CI leg.
+3. Differential check by hand.
+4. Comment on #3 with what P0 now covers; #3 stays open for P1/P2.
 
-## Acceptance (from #3)
+## Acceptance (from #3, as adjusted)
 
 - Supported toolchains pass.
 - At least one required job reports non-skipped oracle comparisons.
-- Fuzz failures produce reproducible regression artifacts.
+- Scheduled fuzzing: left out on purpose (section 3).
 
 ## Outcome
 
@@ -138,3 +111,18 @@ after the fuzz run, over the merged corpus:
   CODE_SIGNING_ALLOWED=NO` succeeds locally; it is the `ios-build` job.
 - Matrix: `oldest` is macos-14 with Xcode 15.2 (Swift 5.9.2, no oracle);
   `current` is macos-15 with the image's default Xcode and the oracle.
+
+### Section 2 (2026-10-13)
+
+- `Tools.unavailable(_:)` in `Support/Oracle.swift` returns an `XCTSkip`,
+  or under `SWIFTRAR_REQUIRE_ORACLE=1` an error that fails the test. All ten
+  skip sites use it (missing unrar, bsdtar, unzip, fixtures, and the
+  fixture-shape guards in `FilterTests` and `Unpack29Tests`).
+- Proof, with the local oracle moved aside and the variable set: before the
+  change 26 oracle-suite tests ran with 3 skipped and 0 failures; after it,
+  the same 3 failed. With the oracle present and the variable set, the full
+  suite ran 139 tests, 0 failures, 0 skipped.
+- CI: the `current` leg caches `Tools/oracle/.build` (key: hash of
+  `build-unrar.sh`, which pins version and checksum), builds the oracle
+  without `continue-on-error`, and sets `SWIFTRAR_REQUIRE_ORACLE=1`.
+  `test (current)` is the check to make required in branch protection.

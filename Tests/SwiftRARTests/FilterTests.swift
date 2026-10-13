@@ -10,7 +10,7 @@ import SwiftRAR
 final class FilterTests: XCTestCase {
     func fixture(_ name: String) throws -> [UInt8] {
         let url = Tools.fixturesDirectory.appendingPathComponent("\(name).rar")
-        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("fixture \(name) missing") }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw Tools.unavailable("fixture \(name) missing") }
         return [UInt8](try Data(contentsOf: url))
     }
 
@@ -69,7 +69,7 @@ final class FilterTests: XCTestCase {
         let source = DataSource(bytes)
         let archive = try RARArchive(source: source, limits: .default)
         let compressed = archive.entries.filter { !$0.isStored && !$0.isDirectory }
-        guard compressed.count >= 2, var first = compressed.first else { throw XCTSkip("needs two entries") }
+        guard compressed.count >= 2, var first = compressed.first else { throw Tools.unavailable("needs two entries") }
         first.crc32 = (first.crc32 ?? 0) ^ 1
         let session = RARDecoder.Session(limits: .default)
         XCTAssertThrowsError(try session.decode(first, from: source) { _ in })

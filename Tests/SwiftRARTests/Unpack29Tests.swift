@@ -98,7 +98,7 @@ final class HuffmanFastPathTests: XCTestCase {
 final class Unpack29Tests: XCTestCase {
     func fixture(_ name: String) throws -> URL {
         let url = Tools.fixturesDirectory.appendingPathComponent("\(name).rar")
-        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("fixture \(name) missing") }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw Tools.unavailable("fixture \(name) missing") }
         return url
     }
 
@@ -108,7 +108,7 @@ final class Unpack29Tests: XCTestCase {
         let archive = try RARArchive(source: DataSource(bytes), limits: .default)
         let compressed = archive.entries.filter { !$0.isStored && !$0.isDirectory }
         guard let entry = compressed.max(by: { $0.packedSize < $1.packedSize }) else {
-            throw XCTSkip("no compressed entry in \(name)")
+            throw Tools.unavailable("no compressed entry in \(name)")
         }
         return (bytes, entry)
     }

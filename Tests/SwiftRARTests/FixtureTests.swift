@@ -33,7 +33,7 @@ final class FixtureTests: XCTestCase {
         let all = (try? FileManager.default.contentsOfDirectory(
             at: Tools.fixturesDirectory, includingPropertiesForKeys: nil)) ?? []
         let rars = all.filter { $0.pathExtension == "rar" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        if rars.isEmpty { throw XCTSkip("no fixtures; run Tools/fixtures/make-fixtures.sh ") }
+        if rars.isEmpty { throw Tools.unavailable("no fixtures; run Tools/fixtures/make-fixtures.sh ") }
         return rars
     }
 

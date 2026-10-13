@@ -33,12 +33,22 @@ jobs:
       - name: Toolchain
         run: swift --version
 
-      - name: Build unrar oracle
-        # Downloads RARLAB's UnRAR source and builds it as a test oracle only.
-        # If rarlab.com is unreachable, oracle tests are skipped, not failed.
+      - name: Cache unrar oracle
         if: matrix.oracle
-        continue-on-error: true
-        run: echo "SWIFTRAR_UNRAR=$(Tools/oracle/build-unrar.sh --build)" >> "$GITHUB_ENV"
+        uses: actions/cache@v4
+        with:
+          path: Tools/oracle/.build
+          key: unrar-${{ runner.os }}-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
+
+      - name: Build unrar oracle
+        # Builds RARLAB's UnRAR source as a test oracle only. This leg requires
+        # it: SWIFTRAR_REQUIRE_ORACLE makes missing tools or fixtures fail the
+        # tests instead of skipping them, so green means the comparisons ran.
+        if: matrix.oracle
+        run: |
+          unrar="$(Tools/oracle/build-unrar.sh --build)"
+          echo "SWIFTRAR_UNRAR=$unrar" >> "$GITHUB_ENV"
+          echo "SWIFTRAR_REQUIRE_ORACLE=1" >> "$GITHUB_ENV"
 
       - name: Build
         run: swift build

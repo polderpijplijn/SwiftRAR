@@ -3,8 +3,23 @@
 import Foundation
 import XCTest
 
-/// Locates external tools for tests. Tests that need a missing tool are skipped.
+/// Locates external tools for tests. Tests that need a missing tool or fixture
+/// are skipped, unless `SWIFTRAR_REQUIRE_ORACLE=1` is set: then they fail, so a
+/// green run proves that the oracle comparisons actually ran.
 enum Tools {
+    static let oracleRequired = ProcessInfo.processInfo.environment["SWIFTRAR_REQUIRE_ORACLE"] == "1"
+
+    /// The error to throw when a test cannot run here: a skip, or under
+    /// `SWIFTRAR_REQUIRE_ORACLE=1` a failure.
+    static func unavailable(_ message: String) -> Error {
+        oracleRequired ? Unavailable(message: message) : XCTSkip(message)
+    }
+
+    struct Unavailable: Error, CustomStringConvertible {
+        let message: String
+        var description: String { "\(message) (SWIFTRAR_REQUIRE_ORACLE=1)" }
+    }
+
     static let repositoryRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent() // Support
         .deletingLastPathComponent() // SwiftRARTests
@@ -37,7 +52,7 @@ enum Tools {
     }
 
     static func requireBsdtar() throws -> URL {
-        guard let bsdtar else { throw XCTSkip("bsdtar not found") }
+        guard let bsdtar else { throw Tools.unavailable("bsdtar not found") }
         return bsdtar
     }
 
@@ -48,12 +63,12 @@ enum Tools {
     }
 
     static func requireUnrar() throws -> URL {
-        guard let unrar else { throw XCTSkip("unrar oracle not found; run Tools/oracle/build-unrar.sh") }
+        guard let unrar else { throw Tools.unavailable("unrar oracle not found; run Tools/oracle/build-unrar.sh") }
         return unrar
     }
 
     static func requireUnzip() throws -> URL {
-        guard let unzip else { throw XCTSkip("unzip not found") }
+        guard let unzip else { throw Tools.unavailable("unzip not found") }
         return unzip
     }
 
@@ -72,7 +87,7 @@ enum Tools {
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
         #else
-        throw XCTSkip("Process is unavailable on this platform")
+        throw Tools.unavailable("Process is unavailable on this platform")
         #endif
     }
 }

@@ -10,7 +10,7 @@ import SwiftRAR
 final class PPMdTests: XCTestCase {
     func fixture(_ name: String) throws -> [UInt8] {
         let url = Tools.fixturesDirectory.appendingPathComponent("\(name).rar")
-        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("fixture \(name) missing") }
+        guard FileManager.default.fileExists(atPath: url.path) else { throw Tools.unavailable("fixture \(name) missing") }
         return [UInt8](try Data(contentsOf: url))
     }
 
