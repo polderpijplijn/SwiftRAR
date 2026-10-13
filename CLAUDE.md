@@ -81,13 +81,17 @@ C/C++, no libarchive. Everything in this repo is written in English.
 | SwiftRAR  | MIT     | umbrella, `convertToCBZ(from:to:limits:)` |
 | RARDecode | unRAR   | Swift port of UnRAR decompression; `LICENSE-UNRAR` is the unmodified text |
 
+The `SwiftRAR` *product* links RARDecode, so it carries both licenses;
+never describe it as just MIT. `RARCore` and `CBZWriter` alone are MIT.
+
 - Code ported from UnRAR goes **only** into `Sources/RARDecode`, with the
   licence paragraph in the source comments (see `RARDecoder.swift`).
   Never put UnRAR-derived code in an MIT target.
 - **Never** use UnRAR as a basis for compression or for creating archives
   (the licence forbids it). SwiftRAR is a reader only.
 - **Never commit the UnRAR source.** Only the oracle script that downloads it.
-- README, NOTICE and this file describe the split. Keep all three in sync.
+- README, NOTICE, `Package.swift` and this file describe the split. Keep
+  them in sync.
 
 ## Hard safety rules
 
@@ -133,6 +137,21 @@ C/C++, no libarchive. Everything in this repo is written in English.
   fixtures out of the every-order oracle test (backwards is quadratic).
   `Examples/ListAndExtract` is an outside package that CI builds and
   compares against unrar.
+- `RARCore/ErrorCategory`: `category` on `RARError` and `CBZWriterError`.
+  The switches are exhaustive on purpose; a new case must get a category,
+  a row in `ErrorCategoryTests` and a row in the DocC error guide.
+- `Sources/SwiftRAR/SwiftRAR.docc`: landing page, GettingStarted,
+  Concurrency, Errors. CI runs `xcodebuild docbuild` and fails on any DocC
+  warning; a missing symbol link is a warning, which a broken test link
+  showed. The README duplicates the support table, limits, concurrency and
+  error categories: keep both in step.
+- `Examples/SwiftUIConvert`: `ConvertUI` (model + view, builds for iOS and
+  macOS) plus a macOS app target. It shows the detached task, forwarded
+  cancellation and main-actor progress. CI only compiles it; whether the
+  UI stays responsive is a manual check.
+- Releases: SemVer tags with three parts (`0.1.0`), because SwiftPM needs
+  them; the apps' two-decimal convention does not apply. `CHANGELOG.md`
+  is updated before tagging and names the UnRAR version RARDecode follows.
 - `RARCore/StreamBitReader`: chunked bit input over a `ByteSource` range.
   `HuffmanTable.decodeSymbol(from: inout StreamBitReader)` is the
   table-driven hot path; the `BitReader` variant is the bit-by-bit reference.
@@ -196,12 +215,12 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Next step
 
-Issue #3 P1 extraction API is done (phase 8, `docs/phase8-plan.md`):
-`RARReader`. Next from #3 is the rest of P1: integration docs (README,
-DocC, SwiftUI example, error guide, release tag) and the capability and
-licensing table; plan it in `docs/` first. The remote part of #1 (async
-source for WebDAV range requests) stays open. Grim Reader can convert every RAR4/RAR5 CBR that
-rar 3.x and later writes; worth a test on real comics on the device first.
+Issue #3 P1 is done (phases 8 and 9; `docs/phase9-plan.md`). What is left
+in #3 is P2: RAR4 Unicode names and BLAKE2sp verification with real
+fixtures, and a reproducible benchmark tool. The remote part of #1 (async
+source for WebDAV range requests) stays open. Grim Reader can convert
+every RAR4/RAR5 CBR that rar 3.x and later writes; worth a test on real
+comics on the device first.
 
 ## Roadmap
 
@@ -222,3 +241,6 @@ against the oracle (fixtures plus differential checks).
 8. **Done (2026-10-13):** `RARReader` (#3 P1, #1 locally): list and
    extract single entries, random access in non-solid archives, restart
    points in solid ones.
+9. **Done (2026-10-14):** integration docs (#3 P1): README as entry point,
+   DocC, SwiftUI example, error guide with `ErrorCategory`, licensing per
+   product, CHANGELOG/CONTRIBUTING/SECURITY, tag `0.1.0`.

@@ -75,6 +75,11 @@ jobs:
             cmp <("$sample" "$archive" "$entry") <("$SWIFTRAR_UNRAR" p -inul "$archive" "$entry")
           done
 
+      - name: SwiftUI example
+        # Compiles only; whether the UI stays responsive is checked by hand.
+        if: matrix.name == 'current'
+        run: swift build --package-path Examples/SwiftUIConvert -Xswiftc -warnings-as-errors
+
   ios-build:
     # Compiles for the iOS device SDK; no simulator is booted.
     runs-on: macos-15
@@ -86,3 +91,22 @@ jobs:
           xcodebuild build -scheme SwiftRAR
           -destination 'generic/platform=iOS'
           CODE_SIGNING_ALLOWED=NO
+
+      - name: SwiftUI example for iOS
+        working-directory: Examples/SwiftUIConvert
+        run: >
+          xcodebuild build -scheme SwiftUIConvert
+          -destination 'generic/platform=iOS'
+          CODE_SIGNING_ALLOWED=NO
+
+      - name: Documentation
+        # DocC catalog plus doc comments; a broken symbol link is a warning
+        # in DocC, and fails this step.
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild docbuild -scheme SwiftRAR -destination 'generic/platform=macOS' 2>&1 | tee docbuild.log
+          if grep -E '\.(md|swift):[0-9]+:[0-9]+: warning:' docbuild.log; then
+            echo "::error::DocC warnings"
+            exit 1
+          fi

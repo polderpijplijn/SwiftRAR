@@ -7,6 +7,7 @@ import RARDecode
 
 /// Result of a successful conversion.
 public struct ConversionResult: Equatable, Sendable {
+    /// `.zip`, `.rar4` or `.rar5`.
     public var sourceFormat: ArchiveFormat
     /// Number of files written to the CBZ (0 for a ZIP copied as-is).
     public var entryCount: Int

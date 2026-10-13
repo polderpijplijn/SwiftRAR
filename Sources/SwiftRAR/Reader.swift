@@ -36,11 +36,16 @@ public final class RARReader {
         public let rawName: String
         /// Unpacked size in bytes.
         public let size: UInt64
+        /// Modification time from the header, if it has one.
         public let modified: Date?
+        /// False for stored entries (`-m0`), which are copied, not decoded.
         public let isCompressed: Bool
     }
 
+    /// `.rar4` or `.rar5`.
     public let format: ArchiveFormat
+    /// Whether compressed entries depend on the ones before them; see
+    /// "Random access" above.
     public let isSolid: Bool
     /// Files only, in archive order: no directories and no links.
     public let entries: [Entry]
@@ -62,6 +67,11 @@ public final class RARReader {
     /// Compressed entries decoded so far, skipped ones included (for tests).
     private(set) var decodedEntries = 0
 
+    /// Opens an archive from any `ByteSource`, reading only its headers.
+    ///
+    /// Throws a `RARError` if the archive is not one that `convertToCBZ`
+    /// would accept. The reader keeps `source` and reads from it on every
+    /// extraction.
     public init(source: ByteSource, limits: Limits) throws {
         let archive = try RARArchive(source: source, limits: limits)
         let plan = try planExtraction(archive, limits: limits)
@@ -90,6 +100,7 @@ public final class RARReader {
         self.stream = stream
     }
 
+    /// Opens the archive at a file URL; see `init(source:limits:)`.
     public convenience init(url: URL, limits: Limits) throws {
         try self.init(source: FileSource(url: url), limits: limits)
     }

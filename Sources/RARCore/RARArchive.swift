@@ -5,12 +5,23 @@
 /// Opening reads only headers; entry data stays in the source until it is
 /// extracted. Archive-level encryption and multi-volume sets are rejected
 /// here; per-entry conditions are left to the caller (see `SwiftRAR`).
+///
+/// This is the metadata layer of the MIT-only `RARCore` product. Most apps
+/// want `RARReader` or `convertToCBZ` from `SwiftRAR` instead, which apply
+/// every safety check. Not thread-safe, because its `source` is not.
 public final class RARArchive {
+    /// The source the headers were read from; entry data is read from it too.
     public let source: ByteSource
+    /// `.rar4` or `.rar5`.
     public let format: ArchiveFormat
+    /// Whether the archive flag says solid.
     public let isSolid: Bool
+    /// Every file header in archive order, directories and links included,
+    /// with names as stored (not sanitised).
     public let entries: [RAREntry]
 
+    /// Parses the headers. Throws for an unknown format, an encrypted or
+    /// multi-volume archive, a corrupt header or an exceeded limit.
     public init(source: ByteSource, limits: Limits) throws {
         let format = try ArchiveFormat.detect(source)
         let parsed: (entries: [RAREntry], isSolid: Bool)

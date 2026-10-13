@@ -3,6 +3,7 @@
 import Foundation
 import RARCore
 
+/// Every error the ZIP writer can produce. `category` groups them.
 public enum CBZWriterError: Error, Equatable, Sendable {
     /// The archive would need ZIP64: an offset or size of 4 GiB or more.
     case zip64Required
@@ -10,10 +11,28 @@ public enum CBZWriterError: Error, Equatable, Sendable {
     case tooManyEntries
     /// Empty, absolute, `..`-containing or otherwise unusable entry name.
     case invalidName(String)
+    /// Two entries with the same name.
     case duplicateName(String)
     /// Calls in the wrong order (e.g. `write` without `beginEntry`).
     case invalidState(String)
+    /// Writing to the output failed.
     case io(String)
+}
+
+extension CBZWriterError {
+    /// The kind of failure; see `ErrorCategory`.
+    public var category: ErrorCategory {
+        switch self {
+        case .zip64Required, .tooManyEntries:
+            return .limit
+        case .invalidName, .duplicateName, .invalidState:
+            // The conversion validates names before writing, so from
+            // `convertToCBZ` these mean a bug, not bad input.
+            return .usage
+        case .io:
+            return .io
+        }
+    }
 }
 
 /// Writes a ZIP archive of stored (uncompressed) entries, i.e. a CBZ.
@@ -23,6 +42,8 @@ public enum CBZWriterError: Error, Equatable, Sendable {
 /// `endEntry` patches CRC and sizes into the local header. No data
 /// descriptors, no ZIP64: anything that would need ZIP64 throws.
 /// Names are flagged as UTF-8 (general purpose bit 11).
+///
+/// Not thread-safe; use one writer from one task.
 public final class CBZWriter {
     /// 0xFFFF in the end record means "see ZIP64", so the last usable count is one less.
     public static let maxEntries = 0xFFFE
@@ -55,6 +76,8 @@ public final class CBZWriter {
     static let versionMadeBy: UInt16 = 20    // 2.0, MS-DOS attributes
     static let utf8Flag: UInt16 = 0x0800
 
+    /// Starts an empty archive on `output`. Nothing is written until the
+    /// first entry; `finish` writes the central directory.
     public init(output: ZIPOutput) {
         self.output = output
     }
@@ -84,6 +107,7 @@ public final class CBZWriter {
         current = OpenEntry(record: record, verifiedCRC: verifiedCRC)
     }
 
+    /// Appends data to the entry opened by `beginEntry`.
     public func write(_ bytes: [UInt8]) throws {
         guard var entry = current else { throw CBZWriterError.invalidState("no open entry") }
         let newSize = try zipChecked(entry.size, UInt64(bytes.count))

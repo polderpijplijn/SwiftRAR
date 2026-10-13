@@ -4,7 +4,11 @@
 ///
 /// A required parameter of every public entry point; `Limits.default` is safe
 /// for comic books on an iPhone. Looser bounds are a deliberate caller choice.
+///
+/// Limits apply per archive and per call, not per process: two conversions
+/// running at the same time may each use the full budget.
 public struct Limits: Equatable, Sendable {
+    /// Which bound `RARError.limitExceeded` refers to.
     public enum Kind: Equatable, Sendable {
         case entries
         case entrySize
@@ -34,6 +38,8 @@ public struct Limits: Equatable, Sendable {
     /// included: what the parser reads and keeps before any data is touched.
     public var maxHeaderBytes: UInt64
 
+    /// Builds a custom set of bounds. Start from `Limits.default` and change
+    /// single properties when only one needs to differ.
     public init(
         maxEntries: Int,
         maxEntrySize: UInt64,

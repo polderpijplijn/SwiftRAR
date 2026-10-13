@@ -9,6 +9,15 @@ License split
   RARDecode  (Sources/RARDecode)  unRAR license, see Sources/RARDecode/LICENSE-UNRAR.
   Tests, Tools, Fuzz              MIT, see LICENSE.
 
+Products and their licenses
+---------------------------
+  SwiftRAR   depends on RARCore, CBZWriter and RARDecode: MIT and unRAR license.
+  RARCore    MIT only (no decompression).
+  CBZWriter  depends on RARCore: MIT only.
+
+An app that uses the SwiftRAR product must reproduce the unRAR paragraph
+below, for example in its acknowledgements.
+
 RARDecode is a Swift port of the decompression code in the UnRAR source by
 Alexander L. Roshal / RARLAB (https://www.rarlab.com). The unRAR license requires the following paragraph to be reproduced:
 
