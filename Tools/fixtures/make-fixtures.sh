@@ -11,6 +11,8 @@
 #   m0   store            -> must convert byte-exact (phase 1)
 #   m3   normal LZ        -> .unsupportedCompression until phase 2 / 5
 #   s    solid, -m3       -> .unsupportedCompression until phase 3 / 5
+#   s2   solid in groups of two files (-s2): restart points inside the
+#        stream, for RARReader's random access (phase 8)
 #   mct  PPMd for text (phase 4)
 #   m3-md64  -m3 with a 64 KB dictionary plus a ~1 MB text (RAR4 only), so
 #            the 256 KB window UnRAR allocates wraps within one entry (phase 2)
@@ -82,6 +84,7 @@ for format in 4 5; do
     make "$tool" "rar$format-m0"  -ma$format -m0
     make "$tool" "rar$format-m3"  -ma$format -m3
     make "$tool" "rar$format-s"   -ma$format -m3 -s
+    make "$tool" "rar$format-s2"  -ma$format -m3 -s2
     make "$tool" "rar$format-mct" -ma$format -m3 -mct+
 done
 

@@ -61,6 +61,20 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: External sample
+        # A separate package that uses only the published products: it must
+        # build, list an archive, and extract entries exactly as unrar does.
+        if: matrix.name == 'current'
+        shell: bash
+        run: |
+          swift build --package-path Examples/ListAndExtract
+          sample=Examples/ListAndExtract/.build/debug/ListAndExtract
+          archive=Tests/Fixtures/rar4-s2.rar
+          "$sample" "$archive"
+          for entry in book/ComicInfo.xml book/pages/page03.jpg; do
+            cmp <("$sample" "$archive" "$entry") <("$SWIFTRAR_UNRAR" p -inul "$archive" "$entry")
+          done
+
   ios-build:
     # Compiles for the iOS device SDK; no simulator is booted.
     runs-on: macos-15

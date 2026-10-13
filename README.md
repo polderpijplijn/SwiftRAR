@@ -22,6 +22,29 @@ An optional `progress` closure receives the fraction processed (0 to 1),
 once per written entry (once per copied chunk for ZIP), on the converting
 thread.
 
+## Reading single files
+
+`RARReader` lists the files of a RAR archive and extracts one at a time,
+without creating a ZIP. It accepts exactly the archives `convertToCBZ`
+accepts.
+
+```swift
+let reader = try RARReader(url: cbrURL, limits: .default)
+for entry in reader.entries {
+    print(entry.name, entry.size, entry.isCompressed)
+}
+let page = try reader.data(for: reader.entries[0])   // returned only after its CRC32 matched
+```
+
+`extract(_:into:)` streams an entry to a closure instead; those bytes are
+provisional until it returns, so discard them on any error. In a non-solid
+archive every entry decodes on its own. In a solid archive an entry needs the
+compressed entries before it in its stream: reading in order costs one pass,
+going back starts again at the beginning of the stream (`isSolid` tells
+which). After an error or cancellation the reader stays usable. A reader is
+not thread-safe: use one per task. `Examples/ListAndExtract` is a complete
+command-line sample.
+
 ## Status
 
 Phase 5 of 7. See `CLAUDE.md` for the roadmap.
@@ -42,7 +65,7 @@ Phase 5 of 7. See `CLAUDE.md` for the roadmap.
 
 | Product     | Contents                                                        | License |
 |-------------|-----------------------------------------------------------------|---------|
-| `SwiftRAR`  | `convertToCBZ(from:to:limits:progress:)`; re-exports RARCore + CBZWriter | MIT     |
+| `SwiftRAR`  | `convertToCBZ(from:to:limits:progress:)`, `RARReader`; re-exports RARCore + CBZWriter | MIT     |
 | `RARCore`   | format detection, RAR4/RAR5 headers, CRC32, bit reader, Huffman, store extraction, name sanitising, `Limits` | MIT |
 | `CBZWriter` | streaming stored-ZIP writer (UTF-8 names, DOS time, no ZIP64)   | MIT     |
 | (RARDecode) | decompression (RAR4 LZ, standard filters, PPMd; RAR5 LZ and filters), a Swift port of UnRAR; internal target | unRAR license |
@@ -97,7 +120,8 @@ swift test
   `rar4-m3-{md64,big,flt}.rar`, `rar4-flt-{e8,audio,delta,rgb}.rar` and
   `rar4-s-{flt,link}.rar`, `rar4-mct-{s,mix,mem,flt,rep}.rar`,
   `rar5-m3-{md128,big}.rar`, `rar5-flt-{e8,delta}.rar` and
-  `rar5-s-{flt,link}.rar` are committed.
+  `rar5-s-{flt,link}.rar` and `rar{4,5}-s2.rar` (solid in groups of two)
+  are committed.
   `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
   `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
   can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.

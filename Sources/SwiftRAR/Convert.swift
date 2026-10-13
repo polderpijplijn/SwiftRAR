@@ -69,6 +69,7 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits,
 
     let archive = try RARArchive(source: source, limits: limits)
     let plan = try planExtraction(archive, limits: limits)
+    if plan.count > CBZWriter.maxEntries { throw CBZWriterError.tooManyEntries }
 
     let writer = CBZWriter(output: output)
     // One session for the archive: a solid entry continues from the one
@@ -103,7 +104,8 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits,
 }
 
 /// Checks every entry before a single byte is written, and maps each one to a
-/// sanitised, unique name. Directories and links are skipped.
+/// sanitised, unique name. Directories and links are skipped. Shared by
+/// conversion and `RARReader`, so both accept exactly the same archives.
 func planExtraction(_ archive: RARArchive, limits: Limits) throws -> [(RAREntry, String)] {
     var plan: [(RAREntry, String)] = []
     var names = Set<String>()
@@ -136,7 +138,6 @@ func planExtraction(_ archive: RARArchive, limits: Limits) throws -> [(RAREntry,
     }
 
     if plan.isEmpty { throw RARError.emptyArchive }
-    if plan.count > CBZWriter.maxEntries { throw CBZWriterError.tooManyEntries }
     return plan
 }
 

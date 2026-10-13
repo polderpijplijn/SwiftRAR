@@ -37,8 +37,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   escape 3 (a filter inside PPMd) and always starts a solid entry with a
   new PPMd header. Keep fixture entries under the 1000:1 ratio limit.
   Exception: in solid RAR5 fixtures RAR 7 packs near-copies of an earlier
-  file far below that (`rar5-s`, `rar5-s-link`); `FixtureTests.limitOverrides`
-  loosens the ratio for exactly those. The RAR5 fixtures (phase 5 section of
+  file far below that (`rar5-s`, `rar5-s-link`, `rar5-s2`);
+  `FixtureTests.limitOverrides` loosens the ratio for exactly those. The RAR5 fixtures (phase 5 section of
   the script) are made with RAR 7.23, which never emits E8E9 or ARM, starts
   every block with new tables, and writes a dictionary of about the data
   size rounded up to a power of two (non-power-of-two sizes and the RAR 7.0
@@ -123,6 +123,16 @@ C/C++, no libarchive. Everything in this repo is written in English.
   return `RAREntry` values with `dataOffset`.
 - `RARCore/RARArchive`: `RARArchive` plus `StoredExtractor`.
 - `SwiftRAR/Convert`: `planExtraction` validates everything first, then streams.
+  `RARReader` uses the same `planExtraction`, so both accept the same
+  archives; only the CBZ entry limit stays in the conversion.
+- `SwiftRAR/Reader`: `RARReader`, single-entry extraction without a ZIP.
+  A compressed entry without the solid flag is a restart point; the reader
+  keeps one session plus a cursor and decodes skipped entries into a
+  discarding sink. Any error drops the session. `decodedEntries` (internal)
+  lets tests count decodes. `ReaderTests.slow` leaves the big PPMd
+  fixtures out of the every-order oracle test (backwards is quadratic).
+  `Examples/ListAndExtract` is an outside package that CI builds and
+  compares against unrar.
 - `RARCore/StreamBitReader`: chunked bit input over a `ByteSource` range.
   `HuffmanTable.decodeSymbol(from: inout StreamBitReader)` is the
   table-driven hot path; the `BitReader` variant is the bit-by-bit reference.
@@ -186,11 +196,11 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Next step
 
-Issue #3 P0 is done (phase 7, `docs/phase7-plan.md`): toolchain matrix,
-iOS build, strict concurrency, required oracle in CI. Scheduled fuzzing in
-CI was dropped on purpose; fuzz locally after decoder changes. Next from #3
-is P1 (supported extraction API, together with #1, and integration docs);
-plan it in `docs/` first. Grim Reader can convert every RAR4/RAR5 CBR that
+Issue #3 P1 extraction API is done (phase 8, `docs/phase8-plan.md`):
+`RARReader`. Next from #3 is the rest of P1: integration docs (README,
+DocC, SwiftUI example, error guide, release tag) and the capability and
+licensing table; plan it in `docs/` first. The remote part of #1 (async
+source for WebDAV range requests) stays open. Grim Reader can convert every RAR4/RAR5 CBR that
 rar 3.x and later writes; worth a test on real comics on the device first.
 
 ## Roadmap
@@ -209,3 +219,6 @@ against the oracle (fixtures plus differential checks).
 7. **Done (2026-10-13):** trustworthy CI (#3 P0): matrix, iOS build, strict
    concurrency, required oracle; a one-off differential check. No scheduled
    fuzzing in CI (decided); the harness in `Fuzz/` runs locally.
+8. **Done (2026-10-13):** `RARReader` (#3 P1, #1 locally): list and
+   extract single entries, random access in non-solid archives, restart
+   points in solid ones.

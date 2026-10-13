@@ -17,16 +17,18 @@ final class FixtureTests: XCTestCase {
         "rar4-mct", "rar4-mct-s", "rar4-mct-mix", "rar4-mct-mem", "rar4-mct-flt",
         "rar4-mct-rep", "rar5-m3", "rar5-s", "rar5-mct",
         "rar5-m3-md128", "rar5-m3-big", "rar5-flt-e8", "rar5-flt-delta", "rar5-s-flt", "rar5-s-link",
+        "rar4-s2", "rar5-s2",
     ]
 
     /// Fixtures that need looser limits than `.default`. In a solid RAR5
     /// stream a near-copy of an earlier file packs to almost nothing:
     /// `ComicInfo.xml` in `rar5-s` (1185:1) and `a.txt` in `rar5-s-link`,
-    /// which RAR 7 puts after `c.txt` that contains it (1268:1).
+    /// which RAR 7 puts after `c.txt` that contains it (1268:1). In `rar5-s2`
+    /// `ComicInfo.xml` shares a group with the text it nearly repeats.
     static let limitOverrides: [String: Limits] = {
         var looser = Limits.default
         looser.maxCompressionRatio = 2_000
-        return ["rar5-s": looser, "rar5-s-link": looser]
+        return ["rar5-s": looser, "rar5-s-link": looser, "rar5-s2": looser]
     }()
 
     func fixtures() throws -> [URL] {
