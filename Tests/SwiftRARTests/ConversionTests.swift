@@ -28,6 +28,35 @@ final class ConversionTests: XCTestCase {
         XCTAssertEqual(try leftovers(in: directory), [])
     }
 
+    func testReportsProgressPerEntryUpToOne() throws {
+        let directory = try makeTemporaryDirectory(self)
+        let input = directory.appendingPathComponent("book.cbr")
+        let output = directory.appendingPathComponent("book.cbz")
+        try write(RAR4Builder.build(sampleFiles()), to: input)
+
+        var reported: [Double] = []
+        let result = try convertToCBZ(from: input, to: output, limits: .default) { reported.append($0) }
+        XCTAssertEqual(reported.count, result.entryCount)
+        XCTAssertEqual(reported, reported.sorted())
+        XCTAssertGreaterThan(reported.first ?? 0, 0)
+        XCTAssertEqual(reported.last, 1)
+    }
+
+    func testReportsProgressForZIPPassthrough() throws {
+        let directory = try makeTemporaryDirectory(self)
+        let zipOutput = MemoryOutput()
+        let writer = CBZWriter(output: zipOutput)
+        try writer.addEntry(name: "p.jpg", modified: nil, contents: [1, 2, 3])
+        try writer.finish()
+        let input = directory.appendingPathComponent("in.cbz")
+        try write(zipOutput.bytes, to: input)
+
+        var reported: [Double] = []
+        try convertToCBZ(from: input, to: directory.appendingPathComponent("out.cbz"),
+                         limits: .default) { reported.append($0) }
+        XCTAssertEqual(reported.last, 1)
+    }
+
     func testZIPIsCopiedUnchanged() throws {
         let directory = try makeTemporaryDirectory(self)
         let zipOutput = MemoryOutput()

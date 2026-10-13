@@ -26,15 +26,20 @@ public struct ConversionResult: Equatable, Sendable {
 /// Output goes to a temporary file next to `destination` that replaces it only
 /// on success; on any error (including a CRC mismatch) the partial file is
 /// deleted and an existing `destination` is left untouched.
+///
+/// `progress` receives the fraction of the archive processed so far, from 0
+/// to 1: once per written entry for RAR, once per copied chunk for ZIP. It is
+/// called on the converting thread; the last call is 1 on success.
 @discardableResult
-public func convertToCBZ(from source: URL, to destination: URL, limits: Limits) throws -> ConversionResult {
+public func convertToCBZ(from source: URL, to destination: URL, limits: Limits,
+                         progress: ((Double) -> Void)? = nil) throws -> ConversionResult {
     let input = try FileSource(url: source)
     let directory = destination.deletingLastPathComponent()
     let temporary = directory.appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).partial")
 
     let output = try FileOutput(url: temporary)
     do {
-        let result = try convertToCBZ(source: input, output: output, limits: limits)
+        let result = try convertToCBZ(source: input, output: output, limits: limits, progress: progress)
         try output.close()
         if FileManager.default.fileExists(atPath: destination.path) {
             _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
@@ -55,10 +60,11 @@ public func convertToCBZ(from source: URL, to destination: URL, limits: Limits) 
 /// Runs synchronously. Inside a `Task`, cancelling the task stops the work
 /// at the next header or output chunk with `RARError.cancelled`.
 @discardableResult
-public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) throws -> ConversionResult {
+public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits,
+                         progress: ((Double) -> Void)? = nil) throws -> ConversionResult {
     let format = try ArchiveFormat.detect(source)
     if format == .zip {
-        return try copyZIP(source, to: output, limits: limits)
+        return try copyZIP(source, to: output, limits: limits, progress: progress)
     }
 
     let archive = try RARArchive(source: source, limits: limits)
@@ -71,7 +77,7 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) 
     // solid stream; RAR5 keeps it in a header record.
     let session = RARDecoder.Session(archive: archive, limits: limits)
     var total: UInt64 = 0
-    for (entry, name) in plan {
+    for (index, (entry, name)) in plan.enumerated() {
         // The extractors verify the CRC of exactly these bytes and throw on a
         // mismatch, so the writer takes it over instead of a second pass
         // (about a quarter of the conversion time).
@@ -84,6 +90,13 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) 
         }
         try writer.endEntry()
         total = try checkedAdd(total, entry.unpackedSize)
+        if let progress {
+            // Measured by position in the archive: packed bytes are what the
+            // work is proportional to. The last entry reports exactly 1.
+            let end = entry.dataOffset.addingReportingOverflow(entry.packedSize)
+            let fraction = source.size == 0 || end.overflow ? 1 : min(1, Double(end.partialValue) / Double(source.size))
+            progress(index == plan.count - 1 ? 1 : fraction)
+        }
     }
     try writer.finish()
     return ConversionResult(sourceFormat: format, entryCount: plan.count, totalBytes: total)
@@ -127,7 +140,8 @@ func planExtraction(_ archive: RARArchive, limits: Limits) throws -> [(RAREntry,
     return plan
 }
 
-private func copyZIP(_ source: ByteSource, to output: ZIPOutput, limits: Limits) throws -> ConversionResult {
+private func copyZIP(_ source: ByteSource, to output: ZIPOutput, limits: Limits,
+                     progress: ((Double) -> Void)?) throws -> ConversionResult {
     guard source.size <= limits.maxTotalSize else { throw RARError.limitExceeded(.totalSize) }
     let chunk: UInt64 = 1 << 20
     var offset: UInt64 = 0
@@ -136,6 +150,8 @@ private func copyZIP(_ source: ByteSource, to output: ZIPOutput, limits: Limits)
         let count = Int(min(chunk, source.size - offset))
         try output.write(try source.read(at: offset, count: count))
         offset += UInt64(count)
+        progress?(Double(offset) / Double(source.size))
     }
+    if source.size == 0 { progress?(1) }
     return ConversionResult(sourceFormat: .zip, entryCount: 0, totalBytes: source.size)
 }

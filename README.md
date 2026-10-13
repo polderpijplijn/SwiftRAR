@@ -18,6 +18,9 @@ that replaces the destination only on success.
 
 The call is synchronous. Run it inside a `Task`: cancelling that task stops
 the work at the next header or output chunk with `RARError.cancelled`.
+An optional `progress` closure receives the fraction processed (0 to 1),
+once per written entry (once per copied chunk for ZIP), on the converting
+thread.
 
 ## Status
 
@@ -39,7 +42,7 @@ Phase 5 of 7. See `CLAUDE.md` for the roadmap.
 
 | Product     | Contents                                                        | License |
 |-------------|-----------------------------------------------------------------|---------|
-| `SwiftRAR`  | `convertToCBZ(from:to:limits:)`; re-exports RARCore + CBZWriter | MIT     |
+| `SwiftRAR`  | `convertToCBZ(from:to:limits:progress:)`; re-exports RARCore + CBZWriter | MIT     |
 | `RARCore`   | format detection, RAR4/RAR5 headers, CRC32, bit reader, Huffman, store extraction, name sanitising, `Limits` | MIT |
 | `CBZWriter` | streaming stored-ZIP writer (UTF-8 names, DOS time, no ZIP64)   | MIT     |
 | (RARDecode) | decompression (RAR4 LZ, standard filters, PPMd; RAR5 LZ and filters), a Swift port of UnRAR; internal target | unRAR license |
