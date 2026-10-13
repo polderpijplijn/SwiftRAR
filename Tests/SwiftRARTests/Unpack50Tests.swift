@@ -252,7 +252,7 @@ final class Unpack50Tests: XCTestCase {
             XCTAssertEqual($0 as? RARError, .corruptData("block header checksum"))
         }
 
-        XCTAssertThrowsError(try decode(packed: [0x80 | 0x18, 0, 0, 0, 0, 0], size: 1)) {
+        XCTAssertThrowsError(try decode(packed: [UInt8(0x80 | 0x18), 0, 0, 0, 0, 0], size: 1)) {
             XCTAssertEqual($0 as? RARError, .corruptData("block size of 4 bytes"))
         }
     }
