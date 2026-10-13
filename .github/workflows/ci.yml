@@ -7,18 +7,58 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    name: test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest supported: swift-tools-version 5.9.
+          - name: oldest
+            runner: macos-14
+            xcode: /Applications/Xcode_15.2.app
+            oracle: false
+          # Current: the runner image's default Xcode.
+          - name: current
+            runner: macos-15
+            xcode: ""
+            oracle: true
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        if: matrix.xcode != ''
+        run: sudo xcode-select -s "${{ matrix.xcode }}"
+
+      - name: Toolchain
+        run: swift --version
 
       - name: Build unrar oracle
         # Downloads RARLAB's UnRAR source and builds it as a test oracle only.
         # If rarlab.com is unreachable, oracle tests are skipped, not failed.
+        if: matrix.oracle
         continue-on-error: true
         run: echo "SWIFTRAR_UNRAR=$(Tools/oracle/build-unrar.sh --build)" >> "$GITHUB_ENV"
 
       - name: Build
         run: swift build
 
+      - name: Strict concurrency
+        # Swift 6 data-race checking on the library and the tests.
+        if: matrix.name == 'current'
+        run: swift build --build-tests -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
       - name: Test
         run: swift test
+
+  ios-build:
+    # Compiles for the iOS device SDK; no simulator is booted.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for iOS
+        run: >
+          xcodebuild build -scheme SwiftRAR
+          -destination 'generic/platform=iOS'
+          CODE_SIGNING_ALLOWED=NO
