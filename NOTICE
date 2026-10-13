@@ -9,9 +9,8 @@ License split
   RARDecode  (Sources/RARDecode)  unRAR license, see Sources/RARDecode/LICENSE-UNRAR.
   Tests, Tools, Fuzz              MIT, see LICENSE.
 
-RARDecode is (or will become) a Swift port of the decompression code in the
-UnRAR source by Alexander L. Roshal / RARLAB (https://www.rarlab.com). The
-unRAR license requires the following paragraph to be reproduced:
+RARDecode is a Swift port of the decompression code in the UnRAR source by
+Alexander L. Roshal / RARLAB (https://www.rarlab.com). The unRAR license requires the following paragraph to be reproduced:
 
    UnRAR source code may be used in any software to handle
    RAR archives without limitations free of charge, but cannot be

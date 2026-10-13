@@ -97,9 +97,16 @@ final class RAR4Tests: ArchiveTestCase {
         assertConversionThrows(build([TestFile(name: "a", contents: [1], split: true)]), .multiVolume)
     }
 
-    func testCompressedEntryIsUnsupported() {
-        assertConversionThrows(build([TestFile(name: "a", contents: [1, 2], method: 3)]),
-                               .unsupportedCompression(method: 3))
+    func testCompressedEntryWithOtherUnpackVersionIsUnsupported() {
+        for version: UInt8 in [15, 20, 26, 36] {
+            assertConversionThrows(build([TestFile(name: "a", contents: [1, 2], method: 3, unpackVersion: version)]),
+                                   .unsupportedCompression(method: 3))
+        }
+    }
+
+    func testGarbageV29DataIsRejected() {
+        // Two raw bytes are no valid unpack29 stream: the table header runs off the end.
+        assertConversionThrows(build([TestFile(name: "a", contents: [1, 2], method: 3)]), .truncated)
     }
 
     func testUnixSymlinkIsSkipped() throws {

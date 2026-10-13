@@ -18,8 +18,12 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `-ma4`; 7.23 for RAR5), downloaded into `Tools/fixtures/.build`. The
   Homebrew `rar` cask is disabled because it fails Gatekeeper. Inside the
   sandbox, pass `TMPDIR` set to the scratchpad.
-  Naming is `<rar4|rar5>-<variant>.rar`. `FixtureTests.storedVariants` lists
-  the variants that must convert. Add a variant there when its phase lands.
+  Naming is `<rar4|rar5>-<variant>.rar`. `FixtureTests.supported` lists the
+  fixture stems (not variants) that must convert and match the oracle. Add a
+  fixture there when its phase lands. The script can only regenerate all
+  fixtures; to add one, run just its part with a copy of the script, so the
+  committed ones stay untouched. `rar` picks RarVM filters on its own for
+  binary data; pass `-mcd- -mce- -mci- -mca- -mcc-` for a filter-free one.
 - Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
   is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
   The script selects `swift-latest` itself; Xcode stays the default
@@ -27,6 +31,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `Fuzz/build.sh run -max_total_time=300 -artifact_prefix=Fuzz/`. Any
   `crash-*` file is a bug: add it as a regression test.
   Baseline on 2026-10-13: 13.7M runs in 5 min, coverage 404, no findings.
+  After phase 2: 730K runs in 5 min (decoding is real work now), coverage
+  970, no findings.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -80,10 +86,19 @@ C/C++, no libarchive. Everything in this repo is written in English.
   return `RAREntry` values with `dataOffset`.
 - `RARCore/RARArchive`: `RARArchive` plus `StoredExtractor`.
 - `SwiftRAR/Convert`: `planExtraction` validates everything first, then streams.
-- `RARDecode/RARDecoder`: `canDecode` and `decode`. The phase 1 stub always
-  throws `.unsupportedCompression`.
+- `RARCore/StreamBitReader`: chunked bit input over a `ByteSource` range.
+  `HuffmanTable.decodeSymbol(from: inout StreamBitReader)` is the
+  table-driven hot path; the `BitReader` variant is the bit-by-bit reference.
+- `RARDecode/RARDecoder`: `canDecode` (RAR4 UnpVer 29, non-solid) and
+  `decode` (CRC check).
+- `RARDecode/Unpack29`: the unpack29 port. Filter code 257 and PPMd blocks
+  throw `.unsupportedCompression` mid-stream.
+- Performance: release build decodes about 120-160 MB/s on the Mac mini.
+  Keep hot paths on concrete types across modules: the generic
+  `CRC32.update<C: Collection>` was about 20x slower than the `[UInt8]`
+  overload and was the bottleneck.
 
-## Known gaps (phase 1)
+## Known gaps
 
 - RAR4 names with the Unicode flag use the part before `\0` (legacy
   OEM/ANSI name). Decoding RAR's compressed Unicode name (unrar `encname`)
@@ -95,14 +110,14 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Next step
 
-Phase 2: port unpack29 (RAR4 LZSS/Huffman) from UnRAR (`unpack30.cpp`, with
-shared parts of `unpack.cpp` and `unpackinline.cpp`; the source comes from
-`Tools/oracle/.build/unrar`) into `Sources/RARDecode`, using
-RARCore's `BitReader` and `HuffmanTable`. Make `RARDecoder.canDecode`
-return true for RAR4 entries with UnpVer 29 that are non-solid and need
-no filters. Then move `rar4-m3` into `FixtureTests.storedVariants` (rename
-the set to "supported") and compare it against the oracle. Solid
-archives and filters are phase 3.
+Phase 3: RAR4 filters and solid archives. Port `AddVMCode`/`UnpWriteBuf30`
+from `unpack30.cpp` and the standard filters from `rarvm.cpp` (recognise the
+standard filter programs by CRC as UnRAR does; no general RarVM). Keep the
+window, tables and filter state across entries for solid archives, which
+means `RARDecoder` needs a decoder object that lives for the whole archive.
+`rar4-m3-flt` (filters) and `rar4-s` (solid) then move into
+`FixtureTests.supported`. Plans per phase go into `docs/` (see
+`docs/phase2-plan.md`).
 
 ## Roadmap
 
@@ -111,7 +126,7 @@ against the oracle (fixtures plus differential checks).
 
 1. **Done:** format detection, RAR4/RAR5 headers, store extraction,
    CBZWriter, oracle, tests.
-2. RAR4 v29 LZSS/Huffman (unpack29).
+2. **Done (2026-10-13):** RAR4 v29 LZSS/Huffman (unpack29).
 3. RAR4 standard filters (E8, E8E9, delta, RGB, audio, Itanium) without a
    full RarVM, plus solid archives.
 4. PPMd variant H.

@@ -16,6 +16,17 @@ public struct CRC32: Sendable {
 
     public init() {}
 
+    /// Concrete overload for the hot path: the generic one below is not
+    /// specialised across module boundaries and is about 20x slower.
+    public mutating func update(_ bytes: [UInt8]) {
+        let table = Self.table
+        var crc = state
+        for byte in bytes {
+            crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+        }
+        state = crc
+    }
+
     public mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
         let table = Self.table
         var crc = state

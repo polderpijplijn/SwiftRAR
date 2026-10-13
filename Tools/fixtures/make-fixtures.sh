@@ -12,6 +12,10 @@
 #   m3   normal LZ        -> .unsupportedCompression until phase 2 / 5
 #   s    solid, -m3       -> .unsupportedCompression until phase 3 / 5
 #   mct  PPMd for text    -> .unsupportedCompression until phase 4
+#   m3-md64  -m3 with a 64 KB dictionary plus a ~1 MB text (RAR4 only), so
+#            the 256 KB window UnRAR allocates wraps within one entry (phase 2)
+#   m3-big   long distances and low-distance repeats, filters off (phase 2)
+#   m3-flt   the same data with rar's filters on -> unsupported until phase 3
 # RAR5 has no PPMd, so rar5-mct ends up as normal LZ; it is kept for symmetry.
 #
 # Content is deterministic so regenerated fixtures differ only in timestamps.
@@ -76,4 +80,38 @@ for format in 4 5; do
     make "$tool" "rar$format-s"   -ma$format -m3 -s
     make "$tool" "rar$format-mct" -ma$format -m3 -mct+
 done
+
+# m3-md64 adds ~1 MB of word salad: compressible, with matches at many
+# distances, and larger than the window, so a single entry wraps it.
+python3 - "$work/book" <<'EOF'
+import os, random, sys
+rng = random.Random(2)
+words = [f"w{rng.getrandbits(24):x}" for _ in range(3_000)]
+with open(os.path.join(sys.argv[1], "pages", "long.txt"), "w") as f:
+    f.write(" ".join(rng.choice(words) for _ in range(130_000)))
+EOF
+make "$RAR4" "rar4-m3-md64" -ma4 -m3 -md64k
+
+# m3-big and m3-flt archive a separate book with one 1.8 MB binary: a random
+# block, the same block with a byte flipped every 4 KiB (matches at distances
+# beyond 256 KiB), and fixed-size records (repeated low distance bits).
+# m3-big turns rar's filters off; m3-flt leaves them on, so rar picks a RarVM
+# filter for the records (phase 3).
+mkdir -p "$work/big/book/pages"
+python3 - "$work/big/book" <<'EOF'
+import os, random, struct, sys
+rng = random.Random(3)
+a = bytearray(rng.getrandbits(8) for _ in range(600_000))
+b = bytearray(a)
+for i in range(0, len(b), 4096):
+    b[i] ^= 0xFF
+records = b"".join(struct.pack("<II", n, n * 3) + b"record-padding-24-bytes!" for n in range(20_000))
+with open(os.path.join(sys.argv[1], "pages", "big.bin"), "wb") as f:
+    f.write(bytes(a) + bytes(b) + records)
+EOF
+(
+    work="$work/big"
+    make "$RAR4" "rar4-m3-big" -ma4 -m3 -mcd- -mce- -mci- -mca- -mcc-
+    make "$RAR4" "rar4-m3-flt" -ma4 -m3
+)
 ls -l "$out"

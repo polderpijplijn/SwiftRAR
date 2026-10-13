@@ -16,13 +16,15 @@ success.
 
 ## Status
 
-Phase 1 of 7. See `CLAUDE.md` for the roadmap.
+Phase 2 of 7. See `CLAUDE.md` for the roadmap.
 
 | Input                              | Status                            |
 |------------------------------------|-----------------------------------|
 | ZIP / CBZ                          | copied unchanged                  |
 | RAR4 / RAR5, stored entries (`-m0`)| converted, verified by CRC32      |
-| Compressed entries (`-m1`...`-m5`) | `RARError.unsupportedCompression` |
+| RAR4 compressed (`-m1`...`-m5`), non-solid, no filters | converted, verified by CRC32 |
+| RAR4 solid, RAR4 filters, PPMd     | `RARError.unsupportedCompression` |
+| RAR5 compressed                    | `RARError.unsupportedCompression` |
 | Encrypted archives or entries      | `RARError.encrypted`              |
 | Multi-volume archives              | `RARError.multiVolume`            |
 | RAR 1.4, SFX                       | not supported                     |
@@ -77,12 +79,13 @@ swift test
   and builds UnRAR from RARLAB's source into `Tools/oracle/.build`. The tests
   convert archives with SwiftRAR and compare the result byte for byte with
   `unrar x`. Tests that need the oracle are skipped when it is missing.
-- **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` are committed.
+- **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` plus
+  `rar4-m3-{md64,big,flt}.rar` are committed.
   `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
   `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
   can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.
-  `m0` must match the oracle exactly; the other variants must fail with
-  `.unsupportedCompression` until their phase lands.
+  The fixtures in `FixtureTests.supported` must match the oracle exactly;
+  the others must fail with `.unsupportedCompression` until their phase lands.
 - Name extraction in the tests uses `bsdtar`, because macOS `unzip` ignores
   the ZIP UTF-8 flag. `unzip -t` is used for integrity checks.
 

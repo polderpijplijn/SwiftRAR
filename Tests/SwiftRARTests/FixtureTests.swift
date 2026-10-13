@@ -5,11 +5,12 @@ import SwiftRAR
 
 /// Archives made by the real `rar` (see Tools/fixtures/make-fixtures.sh).
 ///
-/// Naming: `<rar4|rar5>-<variant>.rar`. Variants `m0` (store) must convert
-/// and match the unrar oracle byte for byte; every other variant is expected
+/// Naming: `<rar4|rar5>-<variant>.rar`. Fixtures in `supported` must convert
+/// and match the unrar oracle byte for byte; every other fixture is expected
 /// to fail with `.unsupportedCompression` until its phase lands.
 final class FixtureTests: XCTestCase {
-    static let storedVariants: Set<String> = ["m0"]
+    /// File stems, not variants: `rar4-m3` is supported before `rar5-m3`.
+    static let supported: Set<String> = ["rar4-m0", "rar5-m0", "rar4-m3", "rar4-m3-md64", "rar4-m3-big"]
 
     func fixtures() throws -> [URL] {
         let all = (try? FileManager.default.contentsOfDirectory(
@@ -19,25 +20,24 @@ final class FixtureTests: XCTestCase {
         return rars
     }
 
-    func variant(of url: URL) -> String {
-        let stem = url.deletingPathExtension().lastPathComponent
-        return String(stem.split(separator: "-", maxSplits: 1).last ?? "")
+    func isSupported(_ url: URL) -> Bool {
+        Self.supported.contains(url.deletingPathExtension().lastPathComponent)
     }
 
-    func testStoredFixturesMatchOracle() throws {
+    func testSupportedFixturesMatchOracle() throws {
         let unrar = try Tools.requireUnrar()
         let unzip = try Tools.requireUnzip()
-        let stored = try fixtures().filter { Self.storedVariants.contains(variant(of: $0)) }
-        XCTAssertFalse(stored.isEmpty, "no store fixtures found")
+        let supported = try fixtures().filter(isSupported)
+        XCTAssertEqual(supported.count, Self.supported.count, "missing supported fixtures")
         let directory = try makeTemporaryDirectory(self)
         let helper = ConversionTests()
-        for url in stored {
+        for url in supported {
             try helper.assertMatchesOracle(input: url, unrar: unrar, unzip: unzip, in: directory)
         }
     }
 
-    func testCompressedFixturesAreUnsupported() throws {
-        let compressed = try fixtures().filter { !Self.storedVariants.contains(variant(of: $0)) }
+    func testOtherFixturesAreUnsupported() throws {
+        let compressed = try fixtures().filter { !isSupported($0) }
         let directory = try makeTemporaryDirectory(self)
         for url in compressed {
             let output = directory.appendingPathComponent(url.lastPathComponent + ".cbz")

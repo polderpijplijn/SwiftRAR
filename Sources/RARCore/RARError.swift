@@ -13,6 +13,8 @@ public enum RARError: Error, Equatable, Sendable {
     case truncated
     /// A header is internally inconsistent (field too short, invalid vint, ...).
     case corruptHeader(String)
+    /// The compressed data stream is malformed (bad Huffman code, invalid table, ...).
+    case corruptData(String)
     /// The header CRC does not match.
     case badHeaderCRC
     /// The CRC32 of the extracted data does not match the header.

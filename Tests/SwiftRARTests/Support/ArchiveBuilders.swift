@@ -12,6 +12,8 @@ struct TestFile {
     var crcOverride: UInt32?
     /// Overrides the method (0 = store); the data is still written raw.
     var method = 0
+    /// RAR4 UnpVer (29 = RAR 2.9/3.x); ignored by the RAR5 builder.
+    var unpackVersion: UInt8 = 29
     var encrypted = false
     var split = false
 }
@@ -78,7 +80,7 @@ enum RAR4Builder {
             body.append(options.hostOS)
             body.le32(file.crcOverride ?? CRC32.checksum(data))
             body.le32(options.dosTime)
-            body.append(29)
+            body.append(file.unpackVersion)
             body.append(UInt8(0x30 + file.method))
             body.le16(UInt16(nameBytes.count))
             body.le32(file.isDirectory ? 0o40755 | 0x10 : options.attributes)
