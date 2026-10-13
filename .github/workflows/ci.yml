@@ -35,9 +35,6 @@ jobs:
     continue-on-error: ${{ matrix.experimental }}
     env:
       DEVELOPER_DIR: ${{ matrix.xcode }}/Contents/Developer
-      # Kept outside the checkout, which is cleaned per job; the script's
-      # hash is in the path, so a new UnRAR version builds afresh.
-      SWIFTRAR_ORACLE_DIR: ${{ runner.tool_cache }}/swiftrar-unrar-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +47,10 @@ jobs:
         # Builds RARLAB's UnRAR source as a test oracle only. CI requires it:
         # SWIFTRAR_REQUIRE_ORACLE makes missing tools or fixtures fail the
         # tests instead of skipping them, so green means the comparisons ran.
+        # It is kept outside the checkout, which is cleaned per job; the
+        # script's hash is in the path, so a new UnRAR version builds afresh.
+        env:
+          SWIFTRAR_ORACLE_DIR: ${{ runner.tool_cache }}/swiftrar-unrar-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
         run: |
           unrar="$(Tools/oracle/build-unrar.sh --build)"
           echo "SWIFTRAR_UNRAR=$unrar" >> "$GITHUB_ENV"
