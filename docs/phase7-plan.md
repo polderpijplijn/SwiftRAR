@@ -1,7 +1,7 @@
 # Phase 7: trustworthy CI (issue #3, P0)
 
 Status: approved 2026-10-13. Section 1 done; section 3 reduced (see there);
-section 2 done; section 3 (differential check) next.
+sections 1-3 done.
 
 Issue #3 P0 step 1 (the `UInt8` literal that broke CI) is done in 539cdf2.
 This phase covers the rest of P0, which also is roadmap phase 7:
@@ -126,3 +126,27 @@ why.
   `build-unrar.sh`, which pins version and checksum), builds the oracle
   without `continue-on-error`, and sets `SWIFTRAR_REQUIRE_ORACLE=1`.
   `test (current)` is the check to make required in branch protection.
+
+### Section 3 (2026-10-13)
+
+One-off differential check over the 1085 inputs in `Fuzz/corpus` plus the
+28 fixtures, with the pinned unrar 7.3.1 and `Limits.default`. A small
+executable ran `convertToCBZ(from:to:limits:)`; a script ran `unrar x`,
+unpacked the CBZ with bsdtar and compared both trees (names in NFC, regular
+files only). The tool lived in the scratchpad and was not kept.
+
+- Fixtures: 26 identical, 2 refused by SwiftRAR only (`rar5-s`,
+  `rar5-s-link`: compression ratio, the known `limitOverrides` cases).
+- Corpus: 27 identical, 0 differing, 0 accepted by SwiftRAR but rejected by
+  unrar; 1055 rejected by both; 3 refused by SwiftRAR only (the two ratio
+  cases, and one archive with only a directory, `emptyArchive`, which is
+  intended for a CBZ).
+- Proof that the comparison bites: a first version used `diff -r` and
+  reported 10 fixtures as different, all because of NFC/NFD names (APFS);
+  after one byte was changed in an unpacked file the final comparer reported
+  it.
+- Limit of this check: almost every corpus input is invalid (a mutated
+  archive fails its CRC), so the corpus adds little beyond the fixtures. A
+  differential check with more reach needs inputs that stay valid, such as
+  generated archives (`rar` with random options and data). Not worth it
+  now; noted here in case wrong-output bugs ever show up.

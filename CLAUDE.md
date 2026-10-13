@@ -50,7 +50,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
   The script selects `swift-latest` itself; Xcode stays the default
   elsewhere. Run it outside the sandbox. Example:
   `Fuzz/build.sh run -max_total_time=300 -artifact_prefix=Fuzz/`. Any
-  `crash-*` file is a bug: add it as a regression test.
+  `crash-*` file is a bug: add it as a regression test. Fuzz after every
+  decoder change and before a new copy goes into Grim Reader; there is no
+  scheduled fuzzing in CI.
   Baseline on 2026-10-13: 13.7M runs in 5 min, coverage 404, no findings.
   After phase 2: 730K runs in 5 min (decoding is real work now), coverage
   970, no findings.
@@ -61,6 +63,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
   After the review hardening (issue #2): 108K runs in 5 min, coverage
   2300, no findings.
+- CI: `test (current)` sets `SWIFTRAR_REQUIRE_ORACLE=1`, which turns every
+  skip for a missing tool or fixture (`Tools.unavailable`) into a failure.
+  Set it locally to check that nothing was skipped.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -181,11 +186,12 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Next step
 
-Phase 7: fuzzing in CI with differential comparison against the oracle
-(phase 6, RAR 2.x, only if such CBRs turn up). Write the plan into
-`docs/phase7-plan.md` first (see the earlier `docs/phase*-plan.md`).
-Grim Reader can now convert every RAR4/RAR5 CBR that rar 3.x and later
-writes; worth a test on real comics on the device before more phases.
+Issue #3 P0 is done (phase 7, `docs/phase7-plan.md`): toolchain matrix,
+iOS build, strict concurrency, required oracle in CI. Scheduled fuzzing in
+CI was dropped on purpose; fuzz locally after decoder changes. Next from #3
+is P1 (supported extraction API, together with #1, and integration docs);
+plan it in `docs/` first. Grim Reader can convert every RAR4/RAR5 CBR that
+rar 3.x and later writes; worth a test on real comics on the device first.
 
 ## Roadmap
 
@@ -200,5 +206,6 @@ against the oracle (fixtures plus differential checks).
 4. **Done (2026-10-13):** PPMd variant H.
 5. **Done (2026-10-13):** RAR5 LZ + filters (unpack50).
 6. RAR 2.x (unpack20), if CBRs in that format turn up.
-7. Fuzzing in CI, with differential comparison against the oracle. The
-   harness exists already (`Fuzz/`); this phase adds CI and differential checks.
+7. **Done (2026-10-13):** trustworthy CI (#3 P0): matrix, iOS build, strict
+   concurrency, required oracle; a one-off differential check. No scheduled
+   fuzzing in CI (decided); the harness in `Fuzz/` runs locally.
