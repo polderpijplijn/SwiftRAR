@@ -14,13 +14,16 @@
 // Decompression only. Nothing in this target may be used to create or
 // compress RAR archives.
 //
-// Ported from UnRAR's unpack30.cpp (Unpack29, ReadTables30, ReadEndOfBlock)
-// and unpackinline.cpp (CopyString, InsertOldDist). Filters (RarVM) and PPMd
-// blocks are not supported yet and end decoding with .unsupportedCompression.
+// Ported from UnRAR's unpack30.cpp (Unpack29, ReadTables30, ReadEndOfBlock,
+// ReadVMCode, AddVMCode, UnpWriteBuf30, InitFilters30), unpack.cpp
+// (UnpInitData, UnpWriteArea, UnpWriteData) and unpackinline.cpp (CopyString,
+// InsertOldDist). PPMd blocks are not supported yet and end decoding with
+// .unsupportedCompression.
 
 import RARCore
 
-/// RAR 2.9/3.x LZ + Huffman decoder for one non-solid entry.
+/// RAR 2.9/3.x LZ + Huffman decoder with RarVM standard filters. One value
+/// lives for a whole archive, so solid entries can share its state.
 struct Unpack29 {
     // Alphabet sizes: literals/lengths, distances, low distance bits,
     // repeated-distance lengths, and the bit-length alphabet.
@@ -60,22 +63,32 @@ struct Unpack29 {
         return (base, bits)
     }()
 
-    private let method: Int
-    private var input: StreamBitReader
-    private let outputSize: UInt64
+    /// UnRAR caps the number of distinct filters and pending filter blocks.
+    static let maxFilters = 8192
+    /// Retry interval while a pending filter block is not complete yet.
+    static let blockedRetry = 0x100
 
-    private var window: [UInt8]
-    private let mask: Int
-    private let flushThreshold: Int
+    private var method = 0
+    private var input: StreamBitReader
+    /// Size of the current entry.
+    private var outputSize: UInt64 = 0
+
+    private var window: [UInt8] = []
+    private var mask = 0
+    private var flushThreshold = 0
     /// Next write position in the window (UnRAR's UnpPtr).
     private var position = 0
-    /// Bytes produced into the window so far.
+    /// Window position of the first byte not yet written (UnRAR's WrPtr).
+    private var writePosition = 0
+    /// Bytes produced into the window since the start of the solid block.
     private var produced: UInt64 = 0
-    /// Bytes handed to the sink so far (at most `outputSize`).
-    private var written: UInt64 = 0
-    /// Window position of the first byte not yet handed to the sink.
-    private var flushPosition = 0
-    private var pending = 0
+    /// `produced` at the start of the current entry.
+    private var entryStart: UInt64 = 0
+    /// `produced` at which the next flush is due.
+    private var nextFlush: UInt64 = 0
+    /// Bytes counted as written for this entry (UnRAR's WrittenFileSize). It
+    /// may pass `outputSize`; the sink never gets more than `outputSize`.
+    private var writtenFileSize: UInt64 = 0
 
     /// Larger than any window, so an unset distance copies zeros.
     private var oldDistances = [Int](repeating: Int(UInt32.max), count: 4)
@@ -83,30 +96,102 @@ struct Unpack29 {
     private var previousLowDistance = 0
     private var lowDistanceRepeatCount = 0
     private var oldTable = [UInt8](repeating: 0, count: tableSize)
+    /// Whether the tables are valid for the next solid entry (TablesRead3).
+    private var tablesRead = false
 
     private var literals = HuffmanTable.empty
     private var distances = HuffmanTable.empty
     private var lowDistances = HuffmanTable.empty
     private var repeats = HuffmanTable.empty
 
-    init(method: Int, input: StreamBitReader, outputSize: UInt64, dictionarySize: UInt64) throws {
-        guard dictionarySize <= UInt64(Int.max / 2) else { throw RARError.limitExceeded(.dictionarySize) }
-        var size = Self.minimumWindow
-        while size < Int(dictionarySize) { size <<= 1 }
+    // Filters (UnRAR's Filters30, OldFilterLengths, LastFilter, PrgStack).
+    private var filters: [StandardFilter] = []
+    private var oldFilterLengths: [UInt32] = []
+    private var lastFilter = 0
+    private var pendingFilters: [PendingFilter?] = []
+    private var vmMemory = [UInt8](repeating: 0, count: RarVM.memorySize + 4)
+    /// How often each filter ran; tests use it to prove a fixture filters.
+    private(set) var appliedFilters: [StandardFilter: Int] = [:]
+
+    private struct PendingFilter {
+        var filter: StandardFilter
+        var blockStart: Int
+        var blockLength: UInt32
+        var nextWindow: Bool
+        var registers: [UInt32]
+    }
+
+    init() throws {
+        input = try StreamBitReader(source: DataSource([]), offset: 0, count: 0)
+    }
+
+    /// Decodes one entry. For a solid entry the window, distances, tables
+    /// and filter definitions of the previous entry carry over
+    /// (UnpInitData with Solid set); otherwise everything starts afresh.
+    mutating func decode(
+        method: Int, input: StreamBitReader, outputSize: UInt64, dictionarySize: UInt64,
+        solid: Bool, into sink: ([UInt8]) throws -> Void
+    ) throws {
+        if !solid || window.isEmpty {
+            try allocateWindow(dictionarySize)
+            oldDistances = [Int](repeating: Int(UInt32.max), count: 4)
+            lastLength = 0
+            oldTable = [UInt8](repeating: 0, count: Self.tableSize)
+            tablesRead = false
+            position = 0
+            writePosition = 0
+            produced = 0
+            filters = []
+            oldFilterLengths = []
+            lastFilter = 0
+        }
+        pendingFilters = []
         self.method = method
         self.input = input
         self.outputSize = outputSize
-        self.window = [UInt8](repeating: 0, count: size)
-        self.mask = size - 1
-        self.flushThreshold = min(size - Self.matchMargin, 1 << 20)
+        writtenFileSize = 0
+        entryStart = produced
+        nextFlush = produced + UInt64(flushThreshold)
+        try run(into: sink)
     }
 
-    mutating func run(into sink: ([UInt8]) throws -> Void) throws {
-        if outputSize > 0 {
-            try readTables()
+    private mutating func allocateWindow(_ dictionarySize: UInt64) throws {
+        guard dictionarySize <= UInt64(Int.max / 2) else { throw RARError.limitExceeded(.dictionarySize) }
+        var size = Self.minimumWindow
+        while size < Int(dictionarySize) { size <<= 1 }
+        if window.count != size {
+            window = [UInt8](repeating: 0, count: size)
         }
-        decoding: while produced < outputSize {
-            if pending >= flushThreshold { try flush(into: sink) }
+        mask = size - 1
+        flushThreshold = min(size - Self.matchMargin, 1 << 20)
+    }
+
+    private mutating func run(into sink: ([UInt8]) throws -> Void) throws {
+        do {
+            if input.remainingBits > 0, !tablesRead {
+                try readTables()
+            }
+            try decodeSymbols(into: sink)
+        } catch RARError.truncated {
+            // The input ran out, which ends the entry as in UnRAR. Whether
+            // the output is complete is checked below.
+        }
+        try writeBuffer(into: sink)
+        guard min(writtenFileSize, outputSize) == outputSize else { throw RARError.truncated }
+    }
+
+    private mutating func decodeSymbols(into sink: ([UInt8]) throws -> Void) throws {
+        // Like UnRAR, read on past the end of the data up to the "new file"
+        // marker, which says whether the next solid entry has new tables.
+        // Stop once the output is longer than the entry.
+        while produced - entryStart <= outputSize {
+            if input.remainingBits == 0 { return }
+            if produced >= nextFlush {
+                try writeBuffer(into: sink)
+                let unflushed = (position - writePosition) & mask
+                let remaining = unflushed < flushThreshold ? flushThreshold - unflushed : 0
+                nextFlush = produced + UInt64(max(remaining, Self.blockedRetry))
+            }
 
             let number = try literals.decodeSymbol(from: &input)
             switch number {
@@ -114,14 +199,12 @@ struct Unpack29 {
                 window[position] = UInt8(number)
                 position = (position + 1) & mask
                 produced += 1
-                pending += 1
 
             case 256:
-                if try !readEndOfBlock() { break decoding }
+                if try !readEndOfBlock() { return }
 
             case 257:
-                // RarVM filter: phase 3.
-                throw RARError.unsupportedCompression(method: method)
+                try readFilter()
 
             case 258:
                 if lastLength != 0 { try copy(length: lastLength, distance: oldDistances[0]) }
@@ -162,8 +245,6 @@ struct Unpack29 {
                 throw RARError.corruptData("literal symbol \(number)")
             }
         }
-        try flush(into: sink)
-        guard written == outputSize else { throw RARError.truncated }
     }
 
     // MARK: - Symbols
@@ -207,8 +288,9 @@ struct Unpack29 {
     }
 
     /// Copies `length` bytes from `distance` back. Like UnRAR, a distance that
-    /// reaches before the first byte of this entry (or beyond the window)
-    /// produces zeros, so the output never depends on stale window contents.
+    /// reaches before the first byte of the solid block (of this entry, if it
+    /// is not solid) or beyond the window produces zeros, so the output never
+    /// depends on stale window contents.
     private mutating func copy(length: Int, distance: Int) throws {
         guard distance > 0 else { throw RARError.corruptData("zero distance") }
         if UInt64(distance) > produced || distance > window.count {
@@ -225,7 +307,6 @@ struct Unpack29 {
             }
         }
         produced += UInt64(length)
-        pending += length
     }
 
     // MARK: - Blocks and tables
@@ -238,7 +319,7 @@ struct Unpack29 {
             try readTables()
             return true
         }
-        _ = try input.readBits(1)
+        tablesRead = try input.readBits(1) == 0
         return false
     }
 
@@ -310,22 +391,206 @@ struct Unpack29 {
         lowDistances = try HuffmanTable(codeLengths: slice(Self.lowDistanceCount))
         repeats = try HuffmanTable(codeLengths: slice(Self.repeatCount))
         oldTable = table
+        tablesRead = true
+    }
+
+
+    // MARK: - Filters
+
+    /// `ReadVMCode`: the filter header that follows symbol 257.
+    private mutating func readFilter() throws {
+        let firstByte = try readBits(8)
+        var length = (firstByte & 7) + 1
+        if length == 7 {
+            length = try readBits(8) + 7
+        } else if length == 8 {
+            length = try readBits(16)
+        }
+        guard length > 0 else { throw RARError.corruptData("empty filter header") }
+        var code: [UInt8] = []
+        code.reserveCapacity(length)
+        for _ in 0..<length {
+            code.append(UInt8(try readBits(8)))
+        }
+        try addFilter(firstByte: firstByte, code: code)
+    }
+
+    /// `AddVMCode`: defines or reuses a filter and queues it for a block.
+    private mutating func addFilter(firstByte: Int, code: [UInt8]) throws {
+        var header = VMBitInput(code)
+        var index: Int
+        if firstByte & 0x80 != 0 {
+            let value = RarVM.readData(&header)
+            if value == 0 {
+                // InitFilters30(false): forget every filter, pending ones too.
+                filters = []
+                oldFilterLengths = []
+                lastFilter = 0
+                pendingFilters = []
+                index = 0
+            } else {
+                index = Int(value) - 1
+            }
+        } else {
+            index = lastFilter
+        }
+        guard index <= filters.count, index <= oldFilterLengths.count else {
+            throw RARError.corruptData("filter index \(index)")
+        }
+        lastFilter = index
+        let isNew = index == filters.count
+        if isNew, index > Self.maxFilters { throw RARError.corruptData("too many filters") }
+
+        pendingFilters.removeAll { $0 == nil }
+        guard pendingFilters.count <= Self.maxFilters else { throw RARError.corruptData("too many pending filters") }
+
+        var blockStart = RarVM.readData(&header)
+        if firstByte & 0x40 != 0 { blockStart &+= 258 }
+        if isNew { oldFilterLengths.append(0) }
+        let blockLength: UInt32
+        if firstByte & 0x20 != 0 {
+            blockLength = RarVM.readData(&header)
+            oldFilterLengths[index] = blockLength
+        } else {
+            blockLength = oldFilterLengths[index]
+        }
+        let unflushedGap = (writePosition - position) & mask
+        let nextWindow = writePosition != position && unflushedGap <= Int(blockStart)
+
+        var registers = [UInt32](repeating: 0, count: 7)
+        registers[4] = blockLength
+        if firstByte & 0x10 != 0 {
+            let initMask = header.peek16() >> 9
+            header.skip(7)
+            for register in 0..<7 where initMask & (1 << register) != 0 {
+                registers[register] = RarVM.readData(&header)
+            }
+        }
+
+        if isNew {
+            let size = Int(RarVM.readData(&header))
+            guard size > 0, size < 0x10000, header.byteAddress + size <= code.count else {
+                throw RARError.corruptData("filter program size \(size)")
+            }
+            var program: [UInt8] = []
+            program.reserveCapacity(size)
+            for _ in 0..<size {
+                guard !header.overflows(3) else { throw RARError.corruptData("filter program overflow") }
+                program.append(UInt8(header.peek16() >> 8))
+                header.skip(8)
+            }
+            switch RarVM.recognise(program) {
+            case .standard(let filter): filters.append(filter)
+            case .badChecksum: throw RARError.corruptData("filter program checksum")
+            // A general RarVM program: UnRAR 7 no longer runs these either.
+            case .unknown: throw RARError.unsupportedCompression(method: method)
+            }
+        }
+
+        pendingFilters.append(PendingFilter(
+            filter: filters[index],
+            blockStart: (Int(blockStart) + position) & mask,
+            blockLength: blockLength,
+            nextWindow: nextWindow,
+            registers: registers))
+    }
+
+    /// Copies `count` window bytes from `start` (wrapping) into VM memory.
+    private mutating func loadVMMemory(from start: Int, count: Int) {
+        var remaining = min(count, RarVM.memorySize)
+        var source = start
+        var target = 0
+        while remaining > 0 {
+            let run = min(remaining, window.count - source)
+            vmMemory.replaceSubrange(target..<(target + run), with: window[source..<(source + run)])
+            target += run
+            remaining -= run
+            source = (source + run) & mask
+        }
+    }
+
+    private mutating func runFilter(_ pending: PendingFilter) -> (offset: Int, count: Int) {
+        var registers = pending.registers
+        registers[6] = UInt32(truncatingIfNeeded: writtenFileSize)
+        appliedFilters[pending.filter, default: 0] += 1
+        return RarVM.execute(pending.filter, registers: registers, memory: &vmMemory)
     }
 
     // MARK: - Output
 
-    /// Hands the bytes produced since the last flush to `sink`, never more
-    /// than `outputSize` in total.
-    private mutating func flush(into sink: ([UInt8]) throws -> Void) throws {
-        var count = Int(min(UInt64(pending), outputSize - written))
-        pending = 0
-        while count > 0 {
-            let run = min(count, window.count - flushPosition)
-            try sink(Array(window[flushPosition..<(flushPosition + run)]))
-            written += UInt64(run)
-            flushPosition = (flushPosition + run) & mask
-            count -= run
+    /// `UnpWriteBuf30`: writes the window up to `position`, running each
+    /// pending filter over its block once the block is complete. Stops in
+    /// front of a block that is not complete yet. The window itself stays
+    /// unfiltered, because later matches refer to it.
+    private mutating func writeBuffer(into sink: ([UInt8]) throws -> Void) throws {
+        var border = writePosition
+        var writeSize = (position - border) & mask
+        var index = 0
+        while index < pendingFilters.count {
+            defer { index += 1 }
+            guard let pending = pendingFilters[index] else { continue }
+            if pending.nextWindow {
+                pendingFilters[index]?.nextWindow = false
+                continue
+            }
+            let blockStart = pending.blockStart
+            guard (blockStart - border) & mask < writeSize else { continue }
+            if border != blockStart {
+                try writeArea(from: border, to: blockStart, into: sink)
+                border = blockStart
+                writeSize = (position - border) & mask
+            }
+            guard UInt64(pending.blockLength) <= UInt64(writeSize) else {
+                // The block is not complete yet: write up to it and retry later.
+                for later in index..<pendingFilters.count {
+                    pendingFilters[later]?.nextWindow = false
+                }
+                writePosition = border
+                return
+            }
+            let blockLength = Int(pending.blockLength)
+            let blockEnd = (blockStart + blockLength) & mask
+            loadVMMemory(from: blockStart, count: blockLength)
+            var (offset, count) = runFilter(pending)
+            pendingFilters[index] = nil
+            // Further filters on the same block run on the filtered data.
+            while index + 1 < pendingFilters.count, let next = pendingFilters[index + 1],
+                  next.blockStart == blockStart, UInt64(next.blockLength) == UInt64(count), !next.nextWindow {
+                if offset != 0 {
+                    let filtered = Array(vmMemory[offset..<(offset + count)])
+                    vmMemory.replaceSubrange(0..<count, with: filtered)
+                }
+                (offset, count) = runFilter(next)
+                index += 1
+                pendingFilters[index] = nil
+            }
+            try writeData(Array(vmMemory[offset..<(offset + count)]), into: sink)
+            border = blockEnd
+            writeSize = (position - border) & mask
         }
-        flushPosition = position
+        try writeArea(from: border, to: position, into: sink)
+        writePosition = position
+    }
+
+    /// `UnpWriteArea`: the window from `start` to `end`, wrapping.
+    private mutating func writeArea(from start: Int, to end: Int, into sink: ([UInt8]) throws -> Void) throws {
+        if end < start {
+            try writeData(Array(window[start..<window.count]), into: sink)
+            try writeData(Array(window[0..<end]), into: sink)
+        } else if end > start {
+            try writeData(Array(window[start..<end]), into: sink)
+        }
+    }
+
+    /// `UnpWriteData`: never hands more than `outputSize` bytes to the sink.
+    private mutating func writeData(_ bytes: [UInt8], into sink: ([UInt8]) throws -> Void) throws {
+        guard writtenFileSize < outputSize else { return }
+        let left = outputSize - writtenFileSize
+        if UInt64(bytes.count) > left {
+            try sink(Array(bytes.prefix(Int(left))))
+        } else if !bytes.isEmpty {
+            try sink(bytes)
+        }
+        writtenFileSize += UInt64(bytes.count)
     }
 }

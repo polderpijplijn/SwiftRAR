@@ -6,8 +6,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Build & test
 
-- `swift build`, `swift test` (about 3 s). Locally, SwiftPM needs to run
-  outside the Claude sandbox, because the clang module cache in
+- `swift build`, `swift test` (about 35 s in debug since phase 3; the
+  oracle comparison and the corruption tests dominate). Locally, SwiftPM
+  needs to run outside the Claude sandbox, because the clang module cache in
   `/var/folders` is not writable from inside it.
 - Oracle: `Tools/oracle/build-unrar.sh` builds the official unrar from
   RARLAB's source into `Tools/oracle/.build` (git-ignored). Bump
@@ -23,7 +24,11 @@ C/C++, no libarchive. Everything in this repo is written in English.
   fixture there when its phase lands. The script can only regenerate all
   fixtures; to add one, run just its part with a copy of the script, so the
   committed ones stay untouched. `rar` picks RarVM filters on its own for
-  binary data; pass `-mcd- -mce- -mci- -mca- -mcc-` for a filter-free one.
+  binary data; pass `-mcd- -mce- -mci- -mca- -mcc-` for a filter-free one,
+  or `-mc<n>d+`/`-mce+`/`-mc<n>a+`/`-mcc+` to force one. RAR 6.24 never
+  emits E8E9 or Itanium, so those two are tested relationally (against E8)
+  and with a hand-built bundle. `FilterTests.testFixturesRunTheirFilters`
+  asserts which filters each fixture actually runs.
 - Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
   is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
   The script selects `swift-latest` itself; Xcode stays the default
@@ -33,6 +38,7 @@ C/C++, no libarchive. Everything in this repo is written in English.
   Baseline on 2026-10-13: 13.7M runs in 5 min, coverage 404, no findings.
   After phase 2: 730K runs in 5 min (decoding is real work now), coverage
   970, no findings.
+  After phase 3: 705K runs in 5 min, coverage 1362, no findings.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -89,10 +95,18 @@ C/C++, no libarchive. Everything in this repo is written in English.
 - `RARCore/StreamBitReader`: chunked bit input over a `ByteSource` range.
   `HuffmanTable.decodeSymbol(from: inout StreamBitReader)` is the
   table-driven hot path; the `BitReader` variant is the bit-by-bit reference.
-- `RARDecode/RARDecoder`: `canDecode` (RAR4 UnpVer 29, non-solid) and
-  `decode` (CRC check).
-- `RARDecode/Unpack29`: the unpack29 port. Filter code 257 and PPMd blocks
+- `RARDecode/RARDecoder`: `canDecode` (RAR4 UnpVer 29), `Session` (one per
+  archive; solid entries continue from the previous one; after a failed
+  entry it refuses further solid entries) and `decode` (CRC check).
+- `RARDecode/Unpack29`: the unpack29 port, including filter registration
+  (`AddVMCode`) and the filtered write path (`UnpWriteBuf30`). PPMd blocks
   throw `.unsupportedCompression` mid-stream.
+- `RARDecode/RarVMFilters`: the six standard filters, recognised by
+  program CRC like UnRAR. A non-standard program throws
+  `.unsupportedCompression`; there is no general RarVM.
+- Links: RAR4 stores a link target raw (UnRAR reads it straight from the
+  packed data), so links never take part in the solid stream and are
+  simply skipped.
 - Performance: release build decodes about 120-160 MB/s on the Mac mini.
   Keep hot paths on concrete types across modules: the generic
   `CRC32.update<C: Collection>` was about 20x slower than the `[UInt8]`
@@ -107,17 +121,16 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `.missingChecksum`.
 - Stored entries in a solid archive are extracted; they do not depend on the
   window.
+- A solid block that mixes PPMd and LZ entries needs phase 4.
 
 ## Next step
 
-Phase 3: RAR4 filters and solid archives. Port `AddVMCode`/`UnpWriteBuf30`
-from `unpack30.cpp` and the standard filters from `rarvm.cpp` (recognise the
-standard filter programs by CRC as UnRAR does; no general RarVM). Keep the
-window, tables and filter state across entries for solid archives, which
-means `RARDecoder` needs a decoder object that lives for the whole archive.
-`rar4-m3-flt` (filters) and `rar4-s` (solid) then move into
-`FixtureTests.supported`. Plans per phase go into `docs/` (see
-`docs/phase2-plan.md`).
+Phase 4: PPMd variant H (`model.cpp`, `suballoc.cpp`, `coder.cpp`) for
+RAR4 `-mct` blocks, including filters inside a PPMd block
+(`ReadVMCodePPM`) and the PPMd/LZ switch inside one entry and across solid
+entries. `rar4-mct` then moves into `FixtureTests.supported`. Write the plan
+into `docs/phase4-plan.md` first (see `docs/phase2-plan.md` and
+`docs/phase3-plan.md`).
 
 ## Roadmap
 
@@ -127,8 +140,8 @@ against the oracle (fixtures plus differential checks).
 1. **Done:** format detection, RAR4/RAR5 headers, store extraction,
    CBZWriter, oracle, tests.
 2. **Done (2026-10-13):** RAR4 v29 LZSS/Huffman (unpack29).
-3. RAR4 standard filters (E8, E8E9, delta, RGB, audio, Itanium) without a
-   full RarVM, plus solid archives.
+3. **Done (2026-10-13):** RAR4 standard filters (E8, E8E9, delta, RGB,
+   audio, Itanium) without a full RarVM, plus solid archives.
 4. PPMd variant H.
 5. RAR5 LZ + filters (unpack50).
 6. RAR 2.x (unpack20), if CBRs in that format turn up.

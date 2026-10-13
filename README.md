@@ -16,14 +16,14 @@ success.
 
 ## Status
 
-Phase 2 of 7. See `CLAUDE.md` for the roadmap.
+Phase 3 of 7. See `CLAUDE.md` for the roadmap.
 
 | Input                              | Status                            |
 |------------------------------------|-----------------------------------|
 | ZIP / CBZ                          | copied unchanged                  |
 | RAR4 / RAR5, stored entries (`-m0`)| converted, verified by CRC32      |
-| RAR4 compressed (`-m1`...`-m5`), non-solid, no filters | converted, verified by CRC32 |
-| RAR4 solid, RAR4 filters, PPMd     | `RARError.unsupportedCompression` |
+| RAR4 compressed (`-m1`...`-m5`), solid or not, with standard filters | converted, verified by CRC32 |
+| RAR4 PPMd (`-mct`), non-standard RarVM programs | `RARError.unsupportedCompression` |
 | RAR5 compressed                    | `RARError.unsupportedCompression` |
 | Encrypted archives or entries      | `RARError.encrypted`              |
 | Multi-volume archives              | `RARError.multiVolume`            |
@@ -80,7 +80,8 @@ swift test
   convert archives with SwiftRAR and compare the result byte for byte with
   `unrar x`. Tests that need the oracle are skipped when it is missing.
 - **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` plus
-  `rar4-m3-{md64,big,flt}.rar` are committed.
+  `rar4-m3-{md64,big,flt}.rar`, `rar4-flt-{e8,audio,delta,rgb}.rar` and
+  `rar4-s-{flt,link}.rar` are committed.
   `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
   `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
   can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.

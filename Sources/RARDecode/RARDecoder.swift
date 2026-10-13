@@ -18,43 +18,76 @@ import RARCore
 
 /// Decompression of compressed RAR entries: a Swift port of RARLAB's UnRAR.
 ///
-/// Supported so far: RAR4 UnpVer 29 (LZ + Huffman), non-solid, without
-/// filters or PPMd blocks. Later phases add RAR4 filters and solid archives,
-/// PPMd variant H and unpack50 (RAR5).
+/// Supported so far: RAR4 UnpVer 29 (LZ + Huffman) with the standard RarVM
+/// filters, solid or not. PPMd blocks throw `.unsupportedCompression`
+/// mid-stream. Later phases add PPMd variant H and unpack50 (RAR5).
 public enum RARDecoder {
-    /// Whether this decoder can unpack the entry. Filters and PPMd blocks only
-    /// show up inside the data; `decode` throws `.unsupportedCompression` then.
+    /// Whether this decoder can unpack the entry. Unknown filter programs and
+    /// PPMd blocks only show up inside the data; decoding throws
+    /// `.unsupportedCompression` then.
     public static func canDecode(_ entry: RAREntry) -> Bool {
-        !entry.isStored && !entry.isSolid && !entry.isEncrypted && !entry.isSplit
-            && entry.unpackVersion == 29
+        !entry.isStored && !entry.isEncrypted && !entry.isSplit && entry.unpackVersion == 29
     }
 
-    /// Unpacks a compressed entry, streaming the output to `sink`, and
-    /// verifies its CRC32.
-    ///
-    /// On an error the data written so far has already reached `sink`; the
-    /// caller must discard its output (SwiftRAR deletes the partial file).
+    /// Unpacks a single compressed entry with a fresh session. A solid entry
+    /// needs the entries before it: use a `Session` for those.
     public static func decode(
         _ entry: RAREntry,
         from source: ByteSource,
         limits: Limits,
         into sink: ([UInt8]) throws -> Void
     ) throws {
-        guard !entry.isEncrypted else { throw RARError.encrypted }
-        guard !entry.isSplit else { throw RARError.multiVolume }
-        guard canDecode(entry) else { throw RARError.unsupportedCompression(method: entry.method) }
-        guard let expectedCRC = entry.crc32 else { throw RARError.missingChecksum(entry: entry.rawName) }
-        guard entry.dictionarySize <= limits.maxDictionarySize else { throw RARError.limitExceeded(.dictionarySize) }
-        guard entry.unpackedSize <= limits.maxEntrySize else { throw RARError.limitExceeded(.entrySize) }
+        try Session(limits: limits).decode(entry, from: source, into: sink)
+    }
 
-        let input = try StreamBitReader(source: source, offset: entry.dataOffset, count: entry.packedSize)
-        var unpack = try Unpack29(method: entry.method, input: input,
-                                  outputSize: entry.unpackedSize, dictionarySize: entry.dictionarySize)
-        var crc = CRC32()
-        try unpack.run { chunk in
-            crc.update(chunk)
-            try sink(chunk)
+    /// Decoder state for one archive. Decode its compressed entries in
+    /// archive order: a solid entry continues from the window, tables and
+    /// filters of the entry before it.
+    public final class Session {
+        private let limits: Limits
+        private var unpack: Unpack29?
+        /// Set when an entry failed; the solid stream after it is unusable.
+        private var failed = false
+
+        public init(limits: Limits) {
+            self.limits = limits
         }
-        if crc.value != expectedCRC { throw RARError.badDataCRC(entry: entry.rawName) }
+
+        /// How often each standard filter ran in this session.
+        public var appliedFilters: [StandardFilter: Int] { unpack?.appliedFilters ?? [:] }
+
+        /// Unpacks a compressed entry, streaming the output to `sink`, and
+        /// verifies its CRC32.
+        ///
+        /// On an error the data written so far has already reached `sink`;
+        /// the caller must discard its output (SwiftRAR deletes the partial
+        /// file).
+        public func decode(_ entry: RAREntry, from source: ByteSource, into sink: ([UInt8]) throws -> Void) throws {
+            guard !entry.isEncrypted else { throw RARError.encrypted }
+            guard !entry.isSplit else { throw RARError.multiVolume }
+            guard Self.canDecode(entry) else { throw RARError.unsupportedCompression(method: entry.method) }
+            guard let expectedCRC = entry.crc32 else { throw RARError.missingChecksum(entry: entry.rawName) }
+            guard entry.dictionarySize <= limits.maxDictionarySize else { throw RARError.limitExceeded(.dictionarySize) }
+            guard entry.unpackedSize <= limits.maxEntrySize else { throw RARError.limitExceeded(.entrySize) }
+            if entry.isSolid && failed {
+                throw RARError.corruptData("solid stream broken by an earlier entry")
+            }
+
+            failed = true
+            let input = try StreamBitReader(source: source, offset: entry.dataOffset, count: entry.packedSize)
+            var state = try unpack ?? Unpack29()
+            unpack = nil
+            var crc = CRC32()
+            try state.decode(method: entry.method, input: input, outputSize: entry.unpackedSize,
+                             dictionarySize: entry.dictionarySize, solid: entry.isSolid) { chunk in
+                crc.update(chunk)
+                try sink(chunk)
+            }
+            unpack = state
+            if crc.value != expectedCRC { throw RARError.badDataCRC(entry: entry.rawName) }
+            failed = false
+        }
+
+        private static func canDecode(_ entry: RAREntry) -> Bool { RARDecoder.canDecode(entry) }
     }
 }

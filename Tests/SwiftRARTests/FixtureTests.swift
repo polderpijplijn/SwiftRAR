@@ -10,7 +10,11 @@ import SwiftRAR
 /// to fail with `.unsupportedCompression` until its phase lands.
 final class FixtureTests: XCTestCase {
     /// File stems, not variants: `rar4-m3` is supported before `rar5-m3`.
-    static let supported: Set<String> = ["rar4-m0", "rar5-m0", "rar4-m3", "rar4-m3-md64", "rar4-m3-big"]
+    static let supported: Set<String> = [
+        "rar4-m0", "rar5-m0", "rar4-m3", "rar4-m3-md64", "rar4-m3-big",
+        "rar4-m3-flt", "rar4-s", "rar4-s-flt", "rar4-s-link",
+        "rar4-flt-e8", "rar4-flt-audio", "rar4-flt-delta", "rar4-flt-rgb",
+    ]
 
     func fixtures() throws -> [URL] {
         let all = (try? FileManager.default.contentsOfDirectory(

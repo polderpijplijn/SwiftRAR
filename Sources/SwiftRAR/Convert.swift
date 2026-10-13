@@ -59,6 +59,11 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) 
     let plan = try planExtraction(archive, limits: limits)
 
     let writer = CBZWriter(output: output)
+    // One session for the archive: a solid entry continues from the one
+    // before it. Links are skipped safely: RAR4 stores a link target raw
+    // (UnRAR reads it from the packed data), so it is never part of the
+    // solid stream; RAR5 keeps it in a header record.
+    let session = RARDecoder.Session(limits: limits)
     var total: UInt64 = 0
     for (entry, name) in plan {
         try writer.beginEntry(name: name, modified: entry.modified)
@@ -66,7 +71,7 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) 
         if entry.isStored {
             try StoredExtractor.extract(entry, from: source, into: sink)
         } else {
-            try RARDecoder.decode(entry, from: source, limits: limits, into: sink)
+            try session.decode(entry, from: source, into: sink)
         }
         let crc = try writer.endEntry()
         // The extractor already verified the data; this guards the writer path.

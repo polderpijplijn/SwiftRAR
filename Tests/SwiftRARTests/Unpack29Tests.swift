@@ -124,7 +124,10 @@ final class Unpack29Tests: XCTestCase {
         XCTAssertTrue(RARDecoder.canDecode(entry))
         var solid = entry
         solid.isSolid = true
-        XCTAssertFalse(RARDecoder.canDecode(solid))
+        XCTAssertTrue(RARDecoder.canDecode(solid))
+        var encrypted = entry
+        encrypted.isEncrypted = true
+        XCTAssertFalse(RARDecoder.canDecode(encrypted))
         var older = entry
         older.unpackVersion = 20
         XCTAssertFalse(RARDecoder.canDecode(older))
