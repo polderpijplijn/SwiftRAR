@@ -36,13 +36,17 @@ final class ConversionModel: ObservableObject {
 
     func convert(_ source: URL, to destination: URL) {
         task = Task {
-            let worker = Task.detached(priority: .userInitiated) { [weak self] in
-                try convertToCBZ(from: source, to: destination, limits: .default) { fraction in
-                    Task { @MainActor in self?.fraction = fraction }
+            let (updates, progress) = AsyncStream.makeStream(of: Double.self,
+                                                             bufferingPolicy: .bufferingNewest(1))
+            let worker = Task.detached(priority: .userInitiated) {
+                defer { progress.finish() }
+                return try convertToCBZ(from: source, to: destination, limits: .default) { fraction in
+                    progress.yield(fraction)
                 }
             }
             let outcome = await withTaskCancellationHandler {
-                await worker.result
+                for await fraction in updates { self.fraction = fraction }
+                return await worker.result
             } onCancel: {
                 worker.cancel()
             }
@@ -55,8 +59,11 @@ final class ConversionModel: ObservableObject {
 }
 ```
 
-Progress updates hop to the main actor one by one and may arrive after
-the result, so ignore any that come in once the conversion has finished.
+The progress closure runs on the worker thread, so it only yields into
+the stream; the main-actor task reads the stream and updates the UI, in
+order, and nothing of the model crosses threads. The stream ends when the
+worker finishes or the task is cancelled.
+
 `Examples/SwiftUIConvert` in the repository is a complete, compiling app
 that does this, including throttled progress and security-scoped file
 access.

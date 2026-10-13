@@ -34,10 +34,16 @@ public final class ConversionModel: ObservableObject {
 
         // This task inherits the main actor; it only waits and updates state.
         task = Task {
+            // Progress travels through a stream: the worker yields, this task
+            // reads on the main actor. Nothing of the model crosses threads,
+            // and updates arrive in order.
+            let (updates, progress) = AsyncStream.makeStream(of: Double.self,
+                                                             bufferingPolicy: .bufferingNewest(1))
             // `convertToCBZ` is synchronous. A plain `Task {}` started here
             // would run it on the main actor and freeze the UI, so the work
             // goes to a detached task.
-            let worker = Task.detached(priority: .userInitiated) { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) {
+                defer { progress.finish() }
                 let accessing = source.startAccessingSecurityScopedResource()
                 defer { if accessing { source.stopAccessingSecurityScopedResource() } }
 
@@ -48,12 +54,15 @@ public final class ConversionModel: ObservableObject {
                     let percent = Int(fraction * 100)
                     guard percent != reported else { return }
                     reported = percent
-                    Task { @MainActor in self?.report(fraction) }
+                    progress.yield(fraction)
                 }
             }
             // A detached task is not cancelled with its parent: forward it.
             let outcome = await withTaskCancellationHandler {
-                await worker.result
+                for await fraction in updates {
+                    state = .converting(fraction: fraction)
+                }
+                return await worker.result
             } onCancel: {
                 worker.cancel()
             }
@@ -64,13 +73,6 @@ public final class ConversionModel: ObservableObject {
     public func cancel() {
         task?.cancel()
         task = nil
-    }
-
-    private func report(_ fraction: Double) {
-        // Progress hops may arrive late or out of order; never go backwards
-        // and never overwrite a finished state.
-        guard case .converting(let current) = state else { return }
-        state = .converting(fraction: max(current, fraction))
     }
 
     private func finish(_ outcome: Result<ConversionResult, Error>, destination: URL) {

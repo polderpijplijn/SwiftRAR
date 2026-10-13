@@ -249,3 +249,10 @@ Done 2026-10-14.
   (`swift run --package-path Examples/SwiftUIConvert` on a Mac).
 - Not done: the repository description and topics wait for Maarten's
   approval of the text.
+- First CI run (38478670595) failed on the runner's Swift 6.1.2: in the
+  SwiftUI example, `Task { @MainActor in self?.report(...) }` inside the
+  progress closure is "sending 'self'" there, while the local 6.3.1
+  accepted it. Progress now travels through an `AsyncStream` (worker
+  yields, the main-actor task reads), so nothing of the model crosses
+  threads and updates arrive in order. The Concurrency article shows the
+  same pattern. Lesson: the local toolchain is newer than CI's `current`.
