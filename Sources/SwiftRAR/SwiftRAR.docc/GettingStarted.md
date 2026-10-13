@@ -19,7 +19,7 @@ targets: [
 
 In Xcode: File > Add Package Dependencies, with the same URL.
 
-SwiftRAR supports iOS 16 and macOS 13 and later, and Swift 5.9 (Xcode 15.2)
+SwiftRAR supports iOS 16 and macOS 13 and later, and Swift 6.2 (Xcode 26)
 up to the current Xcode.
 
 The `SwiftRAR` product includes decompression code ported from UnRAR, which

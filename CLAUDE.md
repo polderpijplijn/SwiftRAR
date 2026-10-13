@@ -63,9 +63,20 @@ C/C++, no libarchive. Everything in this repo is written in English.
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
   After the review hardening (issue #2): 108K runs in 5 min, coverage
   2300, no findings.
-- CI: `test (current)` sets `SWIFTRAR_REQUIRE_ORACLE=1`, which turns every
+- CI runs only on the Mac mini (issue #4): runner `mac-mini-swiftrar` in
+  `~/actions-runner-swiftrar` (launchd service, label `swiftrar`), one job
+  at a time, no GitHub-hosted minutes. No CI while the mini is offline.
+  Legs: `oldest` = `/Applications/Xcode.app` (26.4.1, for the promised
+  `swift-tools-version:6.2`) and `next` = the newest Xcode beta
+  (`continue-on-error`); update the beta path when it changes. Tests run in
+  release (`swift test -c release -Xswiftc -enable-testing`, about 50 s
+  including the build). The oracle lives in the runner's tool cache via
+  `SWIFTRAR_ORACLE_DIR`, since checkout cleans the workspace.
+- Every CI leg sets `SWIFTRAR_REQUIRE_ORACLE=1`, which turns every
   skip for a missing tool or fixture (`Tools.unavailable`) into a failure.
   Set it locally to check that nothing was skipped.
+- Swift 6 language mode (tools 6.2): data races are compile errors, so there
+  is no separate strict-concurrency step any more.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail

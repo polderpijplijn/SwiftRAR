@@ -25,8 +25,8 @@ targets: [
 Or in Xcode: File > Add Package Dependencies, with the same URL.
 
 - **Platforms:** iOS 16, macOS 13 and later.
-- **Toolchains:** Swift 5.9 (Xcode 15.2) up to the current Xcode, both
-  tested in CI, with Swift 6 strict concurrency checking.
+- **Toolchains:** Swift 6.2 (Xcode 26) up to the current Xcode, in the
+  Swift 6 language mode. CI tests Xcode 26.4.1 and the newest Xcode beta.
 
 ## Products and licenses
 

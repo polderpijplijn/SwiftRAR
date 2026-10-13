@@ -4,67 +4,69 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# Everything runs on the Mac mini's self-hosted runner: no GitHub-hosted
+# minutes. That runner takes one job at a time; a newer push to the same ref
+# cancels the run still waiting or running, so the mini only does current work.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     name: test (${{ matrix.name }})
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
-          # Oldest supported: swift-tools-version 5.9.
+          # Oldest supported: swift-tools-version 6.2 (Xcode 26). Tested with
+          # Xcode 26.4.1 (Swift 6.3.1); the 6.2 -> 6.3 gap is accepted.
           - name: oldest
-            runner: macos-14
-            xcode: /Applications/Xcode_15.2.app
-            oracle: false
-          # Current: the runner image's default Xcode.
-          - name: current
-            runner: macos-15
-            xcode: ""
-            oracle: true
-    runs-on: ${{ matrix.runner }}
+            xcode: /Applications/Xcode.app
+            experimental: false
+          # The next toolchain, to see breakage early. May fail without
+          # turning CI red.
+          - name: next
+            xcode: /Applications/Xcode-27.1-beta.app
+            experimental: true
+    runs-on: [self-hosted, swiftrar]
+    continue-on-error: ${{ matrix.experimental }}
+    env:
+      DEVELOPER_DIR: ${{ matrix.xcode }}/Contents/Developer
+      # Kept outside the checkout, which is cleaned per job; the script's
+      # hash is in the path, so a new UnRAR version builds afresh.
+      SWIFTRAR_ORACLE_DIR: ${{ runner.tool_cache }}/swiftrar-unrar-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        if: matrix.xcode != ''
-        run: sudo xcode-select -s "${{ matrix.xcode }}"
-
       - name: Toolchain
-        run: swift --version
-
-      - name: Cache unrar oracle
-        if: matrix.oracle
-        uses: actions/cache@v4
-        with:
-          path: Tools/oracle/.build
-          key: unrar-${{ runner.os }}-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Build unrar oracle
-        # Builds RARLAB's UnRAR source as a test oracle only. This leg requires
-        # it: SWIFTRAR_REQUIRE_ORACLE makes missing tools or fixtures fail the
+        # Builds RARLAB's UnRAR source as a test oracle only. CI requires it:
+        # SWIFTRAR_REQUIRE_ORACLE makes missing tools or fixtures fail the
         # tests instead of skipping them, so green means the comparisons ran.
-        if: matrix.oracle
         run: |
           unrar="$(Tools/oracle/build-unrar.sh --build)"
           echo "SWIFTRAR_UNRAR=$unrar" >> "$GITHUB_ENV"
           echo "SWIFTRAR_REQUIRE_ORACLE=1" >> "$GITHUB_ENV"
 
       - name: Build
-        run: swift build
-
-      - name: Strict concurrency
-        # Swift 6 data-race checking on the library and the tests.
-        if: matrix.name == 'current'
-        run: swift build --build-tests -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+        # Swift 6 language mode: data races are compile errors.
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
 
       - name: Test
-        run: swift test
+        # Release: the PPMd fixtures take minutes in debug, seconds here.
+        run: swift test -c release -Xswiftc -enable-testing
 
       - name: External sample
         # A separate package that uses only the published products: it must
         # build, list an archive, and extract entries exactly as unrar does.
-        if: matrix.name == 'current'
+        if: matrix.name == 'oldest'
         shell: bash
         run: |
           swift build --package-path Examples/ListAndExtract
@@ -77,12 +79,15 @@ jobs:
 
       - name: SwiftUI example
         # Compiles only; whether the UI stays responsive is checked by hand.
-        if: matrix.name == 'current'
+        if: matrix.name == 'oldest'
         run: swift build --package-path Examples/SwiftUIConvert -Xswiftc -warnings-as-errors
 
   ios-build:
     # Compiles for the iOS device SDK; no simulator is booted.
-    runs-on: macos-15
+    needs: test
+    runs-on: [self-hosted, swiftrar]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +95,7 @@ jobs:
         run: >
           xcodebuild build -scheme SwiftRAR
           -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
 
       - name: SwiftUI example for iOS
@@ -97,6 +103,7 @@ jobs:
         run: >
           xcodebuild build -scheme SwiftUIConvert
           -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/DerivedData-example"
           CODE_SIGNING_ALLOWED=NO
 
       - name: Documentation
@@ -105,7 +112,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          xcodebuild docbuild -scheme SwiftRAR -destination 'generic/platform=macOS' 2>&1 | tee docbuild.log
+          xcodebuild docbuild -scheme SwiftRAR -destination 'generic/platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" 2>&1 | tee docbuild.log
           if grep -E '\.(md|swift):[0-9]+:[0-9]+: warning:' docbuild.log; then
             echo "::error::DocC warnings"
             exit 1

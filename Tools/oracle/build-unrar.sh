@@ -2,7 +2,8 @@
 # Provides the official unrar binary as a test oracle and prints its path.
 #
 # Order: $SWIFTRAR_UNRAR, an unrar already on PATH, then a local build from
-# RARLAB's official UnRAR source in Tools/oracle/.build (git-ignored).
+# RARLAB's official UnRAR source in Tools/oracle/.build (git-ignored), or in
+# $SWIFTRAR_ORACLE_DIR when set (CI keeps it outside the checkout).
 #
 # The UnRAR source is downloaded and built here only. It is never committed
 # and never linked into the SwiftRAR package.
@@ -12,7 +13,7 @@ UNRAR_VERSION="7.3.1"
 UNRAR_SHA256="634900842a3737d9cc15bbcc71d4c74cc713437e0bca296a573424fe5f2660ab"
 
 here="$(cd "$(dirname "$0")" && pwd)"
-build="$here/.build"
+build="${SWIFTRAR_ORACLE_DIR:-$here/.build}"
 binary="$build/unrar/unrar"
 
 if [ "${SWIFTRAR_UNRAR:-}" != "" ] && [ -x "$SWIFTRAR_UNRAR" ]; then

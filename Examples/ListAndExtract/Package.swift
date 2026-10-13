@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 import PackageDescription
 
 // A consumer of SwiftRAR outside the repository's own targets: it may use

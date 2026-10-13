@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 import PackageDescription
 
 // A SwiftUI consumer of SwiftRAR that uses only the published products.
@@ -13,13 +13,11 @@ let package = Package(
     targets: [
         .target(
             name: "ConvertUI",
-            dependencies: [.product(name: "SwiftRAR", package: "SwiftRAR")],
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
+            dependencies: [.product(name: "SwiftRAR", package: "SwiftRAR")]
         ),
         .executableTarget(
             name: "SwiftUIConvert",
-            dependencies: ["ConvertUI"],
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]
+            dependencies: ["ConvertUI"]
         ),
     ]
 )

@@ -5,6 +5,14 @@ All notable changes to SwiftRAR. The format follows
 follow [Semantic Versioning](https://semver.org); while the version is 0.x,
 a minor release may change the API.
 
+## Unreleased
+
+### Changed
+
+- The minimum toolchain is now Swift 6.2 (Xcode 26), up from Swift 5.9
+  (Xcode 15.2); the package builds in the Swift 6 language mode. Platforms
+  stay iOS 16 and macOS 13.
+
 ## 0.1.0 - 2026-10-14
 
 First tagged release. RARDecode follows UnRAR 7.3.1.
