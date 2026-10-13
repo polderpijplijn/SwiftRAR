@@ -10,6 +10,9 @@ DerivedData/
 # Oracle build: official UnRAR source, never committed.
 /Tools/oracle/.build/
 
+# Fixture generator: official rar binary, never committed.
+/Tools/fixtures/.build/
+
 # Fuzzer output.
 /Fuzz/.build/
 /Fuzz/corpus/

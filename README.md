@@ -77,8 +77,10 @@ swift test
   and builds UnRAR from RARLAB's source into `Tools/oracle/.build`. The tests
   convert archives with SwiftRAR and compare the result byte for byte with
   `unrar x`. Tests that need the oracle are skipped when it is missing.
-- **Fixtures**: `Tools/fixtures/make-fixtures.sh` uses the real `rar`
-  (`brew install rar`) to create `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar`.
+- **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` are committed.
+  `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
+  `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
+  can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.
   `m0` must match the oracle exactly; the other variants must fail with
   `.unsupportedCompression` until their phase lands.
 - Name extraction in the tests uses `bsdtar`, because macOS `unzip` ignores

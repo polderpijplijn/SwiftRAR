@@ -13,7 +13,11 @@ C/C++, no libarchive. Everything in this repo is written in English.
   RARLAB's source into `Tools/oracle/.build` (git-ignored). Bump
   `UNRAR_VERSION` and `UNRAR_SHA256` together. Tests find it there, or
   through `$SWIFTRAR_UNRAR`, or in Homebrew.
-- Fixtures: `Tools/fixtures/make-fixtures.sh` (needs `brew install rar`).
+- Fixtures are committed. `Tools/fixtures/make-fixtures.sh` regenerates them
+  with pinned official `rar` builds (6.24 for RAR4, because RAR 7 dropped
+  `-ma4`; 7.23 for RAR5), downloaded into `Tools/fixtures/.build`. The
+  Homebrew `rar` cask is disabled because it fails Gatekeeper. Inside the
+  sandbox, pass `TMPDIR` set to the scratchpad.
   Naming is `<rar4|rar5>-<variant>.rar`. `FixtureTests.storedVariants` lists
   the variants that must convert. Add a variant there when its phase lands.
 - Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain.
