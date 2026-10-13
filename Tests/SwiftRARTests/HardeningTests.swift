@@ -104,7 +104,7 @@ final class HardeningTests: XCTestCase {
             XCTAssertEqual(entry.dictionarySize, 4 << 20)
             try session.decode(entry, from: source) { _ in }
             var needed = Unpack29.minimumWindow
-            while needed < Int(entry.unpackedSize) { needed <<= 1 }
+            while needed < Int(entry.unpackedSize + RARDecoder.Session.windowSlack) { needed <<= 1 }
             XCTAssertLessThan(needed, 4 << 20, "\(entry.rawName) proves nothing")
             XCTAssertLessThanOrEqual(session.windowBytes, needed, entry.rawName)
             decoded += 1
@@ -155,6 +155,40 @@ final class HardeningTests: XCTestCase {
         }
     }
 
+    /// Follow-up review of fb64b49: a filter over the whole entry keeps it
+    /// unflushed until the end. In a window of exactly the entry's size the
+    /// position then wrapped onto the write position, full looked like
+    /// empty, and the entry came out as `.truncated` with zero bytes.
+    func testFilterOverTheWholeEntryFitsTheBoundedWindow() throws {
+        let payload = [UInt8](repeating: 0, count: 300_000)
+        var stream = RAR5Stream(extended: false)
+        stream.filter(start: 0, length: payload.count, type: .arm) // zeros pass unchanged
+        stream.literals(payload)
+        var file = TestFile(name: "p.jpg", contents: stream.bytes(), rar5Compression: 3 << 7 | 2 << 10)
+        file.unpackedSizeOverride = UInt64(payload.count)
+        file.crcOverride = CRC32.checksum(payload)
+        let bytes = RAR5Builder.build([file])
+
+        let source = DataSource(bytes)
+        let archive = try RARArchive(source: source, limits: .default)
+        let entry = try XCTUnwrap(archive.entries.first)
+        XCTAssertEqual(entry.dictionarySize, 512 << 10)
+        let session = RARDecoder.Session(archive: archive, limits: .default)
+        var output: [UInt8] = []
+        try session.decode(entry, from: source) { output += $0 }
+        XCTAssertEqual(output, payload)
+        XCTAssertLessThan(session.windowBytes, 512 << 10)
+
+        let cbz = MemoryOutput()
+        XCTAssertEqual(try convertToCBZ(source: DataSource(bytes), output: cbz, limits: .default).entryCount, 1)
+
+        let unrar = try Tools.requireUnrar()
+        let directory = try makeTemporaryDirectory(self)
+        let archiveURL = directory.appendingPathComponent("filter.rar")
+        try Data(bytes).write(to: archiveURL)
+        XCTAssertEqual(try Tools.run(unrar, ["t", "-inul", archiveURL.path]).status, 0)
+    }
+
     // MARK: - 4. ZIP passthrough
 
     /// A ZIP is copied, not validated, but never beyond the total limit.
@@ -202,7 +236,11 @@ final class HardeningTests: XCTestCase {
             let task = Task.detached { () -> Int in
                 let source = DataSource(bytes)
                 let archive = try RARArchive(source: source, limits: .default)
-                let entry = try XCTUnwrap(archive.entries.max { $0.unpackedSize < $1.unpackedSize })
+                var entry = try XCTUnwrap(archive.entries.max { $0.unpackedSize < $1.unpackedSize })
+                // A RAR5 entry that fits its window comes out as one chunk.
+                // A smaller dictionary makes the window wrap, so there is a
+                // next chunk; the output is wrong then, but never checked.
+                if entry.unpackVersion != 29 { entry.dictionarySize = 256 << 10 }
                 var chunks = 0
                 let sink: ([UInt8]) throws -> Void = { _ in
                     chunks += 1
@@ -224,6 +262,33 @@ final class HardeningTests: XCTestCase {
         }
     }
 
+    /// Follow-up review of fb64b49: decoding that writes nothing never
+    /// reached the per-chunk check. 400,000 repeat-last symbols without an
+    /// earlier match produce no bytes; cancelled at the first read of the
+    /// compressed data, the conversion used to succeed anyway.
+    func testCancellationStopsDecodingThatProducesNoOutput() async throws {
+        var stream = RAR5Stream(extended: false)
+        for _ in 0..<400_000 { stream.repeatLast() }
+        var file = TestFile(name: "p.jpg", contents: stream.bytes(), rar5Compression: 3 << 7)
+        file.unpackedSizeOverride = 0
+        file.crcOverride = 0
+        let bytes = RAR5Builder.build([file])
+        let dataOffset = try XCTUnwrap(RARArchive(source: DataSource(bytes), limits: .default).entries.first).dataOffset
+
+        let task = Task.detached { () -> (RARError?, Int) in
+            let source = CancellingSource(DataSource(bytes), cancelAt: dataOffset)
+            do {
+                _ = try convertToCBZ(source: source, output: MemoryOutput(), limits: .default)
+                return (nil, source.readsAfterCancel)
+            } catch {
+                return (error as? RARError, source.readsAfterCancel)
+            }
+        }
+        let (error, readsAfterCancel) = await task.value
+        XCTAssertEqual(error, .cancelled)
+        XCTAssertEqual(readsAfterCancel, 0)
+    }
+
     func testCancelledParseStops() async throws {
         let bytes = try fixtures.fixture("rar4-m3")
         let task = Task.detached {
@@ -236,5 +301,31 @@ final class HardeningTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? RARError, .cancelled)
         }
+    }
+}
+
+/// Cancels the current task when the first read at `cancelAt` happens, and
+/// counts the reads that follow.
+final class CancellingSource: ByteSource {
+    private let base: ByteSource
+    private let cancelAt: UInt64
+    private var cancelled = false
+    private(set) var readsAfterCancel = 0
+
+    init(_ base: ByteSource, cancelAt: UInt64) {
+        self.base = base
+        self.cancelAt = cancelAt
+    }
+
+    var size: UInt64 { base.size }
+
+    func read(at offset: UInt64, count: Int) throws -> [UInt8] {
+        if cancelled {
+            readsAfterCancel += 1
+        } else if offset == cancelAt {
+            cancelled = true
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return try base.read(at: offset, count: count)
     }
 }

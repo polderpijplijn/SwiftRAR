@@ -72,20 +72,33 @@ public enum RARDecoder {
         /// A session for the entries of `archive`. A stream never refers
         /// further back than the bytes it produced, so the window is at most
         /// the entry's size (non-solid) or that of all compressed entries
-        /// together (solid). A tiny entry that asks for a 256 MiB dictionary
-        /// then costs 256 KB. Output of valid archives is the same.
+        /// together (solid), plus `windowSlack`. A tiny entry that asks for a
+        /// 256 MiB dictionary then costs 256 KB. Output of valid archives is
+        /// the same.
         public init(archive: RARArchive, limits: Limits) {
             self.limits = limits
             if archive.isSolid {
                 var total: UInt64 = 0
                 for entry in archive.entries where !entry.isStored && !entry.isDirectory && !entry.isLink {
-                    let (sum, overflow) = total.addingReportingOverflow(entry.unpackedSize)
-                    total = overflow ? .max : sum
+                    total = Self.saturatingAdd(total, Self.saturatingAdd(entry.unpackedSize, Self.windowSlack))
                 }
                 windowBound = .stream(total)
             } else {
                 windowBound = .entry
             }
+        }
+
+        /// Room beyond the data in a bounded window. The window must stay
+        /// larger than everything the stream writes: a filter block is held
+        /// back until it is complete (in RAR5 up to the whole entry), and a
+        /// window that fills up wraps onto the write position, where full
+        /// reads as empty. A stream may also write one match past its end
+        /// (0x1004 bytes at most).
+        static let windowSlack: UInt64 = 0x10000
+
+        private static func saturatingAdd(_ a: UInt64, _ b: UInt64) -> UInt64 {
+            let (sum, overflow) = a.addingReportingOverflow(b)
+            return overflow ? .max : sum
         }
 
         /// Bytes allocated for the LZ windows (for tests).
@@ -120,12 +133,16 @@ public enum RARDecoder {
             let window: UInt64
             switch windowBound {
             case .dictionary: window = entry.dictionarySize
-            case .entry: window = min(entry.dictionarySize, entry.unpackedSize)
+            case .entry: window = min(entry.dictionarySize, Self.saturatingAdd(entry.unpackedSize, Self.windowSlack))
             case .stream(let size): window = min(entry.dictionarySize, size)
             }
 
+            if Task.isCancelled { throw RARError.cancelled }
             failed = true
-            let input = try StreamBitReader(source: source, offset: entry.dataOffset, count: entry.packedSize)
+            // Decoding can run long without output (repeats of nothing,
+            // tables, filters), so the input checks too, at every refill.
+            let input = try StreamBitReader(source: CancellableSource(source), offset: entry.dataOffset,
+                                            count: entry.packedSize)
             var crc = CRC32()
             // The decoders hand over output in chunks of at most a few MiB:
             // a cancelled task stops at the next one.
@@ -155,5 +172,21 @@ public enum RARDecoder {
         }
 
         private static func canDecode(_ entry: RAREntry) -> Bool { RARDecoder.canDecode(entry) }
+    }
+}
+
+/// Throws `.cancelled` instead of reading once the current task is cancelled.
+private final class CancellableSource: ByteSource {
+    private let base: ByteSource
+
+    init(_ base: ByteSource) {
+        self.base = base
+    }
+
+    var size: UInt64 { base.size }
+
+    func read(at offset: UInt64, count: Int) throws -> [UInt8] {
+        if Task.isCancelled { throw RARError.cancelled }
+        return try base.read(at: offset, count: count)
     }
 }

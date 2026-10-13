@@ -160,3 +160,32 @@ oracle. Every new test failed against the unfixed code first.
 
 Still open, for the Grim Reader integration: its own `Limits` and
 concurrency budget, and benchmarks with real comics on an iPhone.
+
+## Follow-up review of fb64b49
+
+Two cases from the follow-up review in issue #2, both reproduced as tests
+that failed against fb64b49 exactly as reported (`.truncated` with zero
+bytes; success after cancellation with six more reads).
+
+1. **Filter block in a bounded window.** A RAR5 filter over a whole
+   300,000-byte entry (512 KiB dictionary) holds the entry back until it is
+   complete. The window was exactly 300,000 bytes, so it filled up, the
+   position wrapped onto the write position and full read as empty. The
+   bounded window now gets `Session.windowSlack` (64 KiB) beyond the data,
+   per entry in a solid stream, so it stays larger than everything a stream
+   writes, one match past its end included. The same holds for RAR4, whose
+   power-of-two window could equal an entry of exactly that size. The
+   review's tiny entry still gets the 256 KB minimum. The test also checks
+   the archive with the official unrar.
+2. **Cancellation without output.** The decoder session checks
+   cancellation before each entry and on every read of compressed input
+   (one per 64 KB), through a wrapper around the `ByteSource`, so decoding
+   that writes nothing stops too. Work between two reads is bounded by
+   64 KB of input or by output, which the per-chunk check already covers.
+
+`testCancelledExtractionStopsAtTheNextChunk` relied on the exact-size
+window: it forced `rar5-m3-big` (1.84 MB, 2 MiB dictionary) to flush
+before the end. With the slack, as in UnRAR with the full dictionary, that
+entry comes out as one chunk, so the test now gives the RAR5 entry a
+256 KB dictionary in memory to get a wrapping window. 139 tests pass in
+release, the official unrar comparisons included.

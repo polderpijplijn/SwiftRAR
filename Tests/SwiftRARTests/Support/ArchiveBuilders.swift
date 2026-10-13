@@ -10,6 +10,8 @@ struct TestFile {
     var isDirectory = false
     /// Overrides the stored CRC (to produce a data-CRC mismatch).
     var crcOverride: UInt32?
+    /// Overrides the unpacked size in the RAR5 header (default: the data size).
+    var unpackedSizeOverride: UInt64?
     /// Overrides the method (0 = store); the data is still written raw.
     var method = 0
     /// RAR4 UnpVer (29 = RAR 2.9/3.x); ignored by the RAR5 builder.
@@ -159,7 +161,7 @@ enum RAR5Builder {
             if file.isDirectory { fileFlags |= 0x01 }
             if options.includeCRC && !file.isDirectory { fileFlags |= 0x04 }
             fields.vint(fileFlags)
-            fields.vint(UInt64(data.count))
+            fields.vint(file.unpackedSizeOverride ?? UInt64(data.count))
             fields.vint(file.isDirectory ? 0o40755 : 0o100644)
             fields.le32(options.unixTime)
             if options.includeCRC && !file.isDirectory {
