@@ -75,6 +75,7 @@ struct Unpack29 {
     private var outputSize: UInt64 = 0
 
     private var window: [UInt8] = []
+    var windowCount: Int { window.count }
     private var mask = 0
     private var flushThreshold = 0
     /// Next write position in the window (UnRAR's UnpPtr).

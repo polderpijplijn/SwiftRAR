@@ -59,6 +59,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   256 MiB), coverage 2126, no findings.
   After phase 5: 110K runs in 5 min, coverage 2274, no findings (seeds
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
+  After the review hardening (issue #2): 108K runs in 5 min, coverage
+  2300, no findings.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -98,7 +100,11 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `\` becomes `/`; drop `.`, `..` and empty components and a leading drive
   letter; reject control characters; no absolute paths.
 - `Limits` is a required parameter with safe defaults: max entries, entry
-  size, total size, ratio, name length, dictionary size and PPMd memory.
+  size, total size, ratio, name length, dictionary size, PPMd memory and
+  header bytes. The parsers enforce name length and header bytes while
+  walking the headers (service headers included), before keeping anything.
+- Cancellation: synchronous code checks `Task.isCancelled` per header, per
+  output chunk and per copied chunk, and throws `RARError.cancelled`.
 - Verify the CRC of every entry. On a mismatch, abort and delete the
   half-written output (the URL API writes to a `.partial` temp file).
 - Stream through `ByteSource` (`FileSource`/`DataSource`). Never load the
@@ -120,6 +126,13 @@ C/C++, no libarchive. Everything in this repo is written in English.
   plain 1 to 70, as UnRAR does), `Session` (one per
   archive; solid entries continue from the previous one; after a failed
   entry it refuses further solid entries) and `decode` (CRC check).
+  `Session(archive:limits:)` bounds the window by the data it can hold
+  (entry size, or all compressed entries of a solid archive);
+  `Session(limits:)` keeps the header's dictionary size.
+- `CBZWriter.beginEntry(verifiedCRC:)`: the conversion hands over the CRC
+  the extractor verifies, instead of a second CRC pass (that pass was a
+  quarter to half of the conversion time). The extractors' own CRC checks
+  are therefore the only ones on that path.
 - `RARDecode/Unpack29`: the unpack29 port, including filter registration
   (`AddVMCode`) and the filtered write path (`UnpWriteBuf30`), plus the
   PPMd escapes (`ReadVMCodePPM`, LZ and RLE inside PPMd).
@@ -147,7 +160,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
 - Links: RAR4 stores a link target raw (UnRAR reads it straight from the
   packed data), so links never take part in the solid stream and are
   simply skipped.
-- Performance: release build decodes about 120-160 MB/s on the Mac mini
+- Performance: CRC32 runs at about 400 MB/s (table-driven, byte at a
+  time); a faster CRC would help every path. Release build decodes about 120-160 MB/s on the Mac mini
   for RAR4 LZ, 80-270 MB/s for RAR5 (filtered data is the slow end; unrar
   is about 3x faster there); PPMd 25-50 MB/s on text, 5 MB/s when
   memory-starved or on random data (about 2x slower than the C unrar).

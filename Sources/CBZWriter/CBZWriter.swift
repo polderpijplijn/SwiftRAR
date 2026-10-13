@@ -40,6 +40,8 @@ public final class CBZWriter {
     private struct OpenEntry {
         var record: Record
         var crc = CRC32()
+        /// Supplied by the caller, who verified the data itself.
+        var verifiedCRC: UInt32?
         var size: UInt64 = 0
     }
 
@@ -57,7 +59,11 @@ public final class CBZWriter {
         self.output = output
     }
 
-    public func beginEntry(name: String, modified: Date?) throws {
+    /// Opens an entry. With `verifiedCRC`, the writer stores that value
+    /// instead of computing CRC32 over the data a second time: only for a
+    /// caller that checks the very same bytes itself and discards the output
+    /// when they do not match (as SwiftRAR's conversion does).
+    public func beginEntry(name: String, modified: Date?, verifiedCRC: UInt32? = nil) throws {
         guard !isFinished, current == nil else {
             throw CBZWriterError.invalidState("entry already open or archive finished")
         }
@@ -75,7 +81,7 @@ public final class CBZWriter {
         )
         try output.write(Self.localHeader(record))
         names.insert(name)
-        current = OpenEntry(record: record)
+        current = OpenEntry(record: record, verifiedCRC: verifiedCRC)
     }
 
     public func write(_ bytes: [UInt8]) throws {
@@ -86,7 +92,7 @@ public final class CBZWriter {
             throw CBZWriterError.zip64Required
         }
         try output.write(bytes)
-        entry.crc.update(bytes)
+        if entry.verifiedCRC == nil { entry.crc.update(bytes) }
         entry.size = newSize
         current = entry
     }
@@ -95,7 +101,7 @@ public final class CBZWriter {
     @discardableResult
     public func endEntry() throws -> UInt32 {
         guard var entry = current else { throw CBZWriterError.invalidState("no open entry") }
-        entry.record.crc = entry.crc.value
+        entry.record.crc = entry.verifiedCRC ?? entry.crc.value
         entry.record.size = UInt32(entry.size)
         // CRC-32, compressed size, uncompressed size live at offset 14 of the local header.
         var patch: [UInt8] = []

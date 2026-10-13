@@ -326,7 +326,8 @@ final class RobustnessTests: XCTestCase {
     }
 }
 
-/// The extractor itself must verify CRCs; SwiftRAR's second check is only a backstop.
+/// The extractor itself must verify CRCs: the conversion hands its CRC to
+/// the ZIP writer and does not check the data a second time.
 final class StoredExtractorTests: XCTestCase {
     func testDetectsCRCMismatchOnItsOwn() throws {
         for bytes in [RAR4Builder.build([TestFile(name: "a", contents: [1, 2, 3], crcOverride: 7)]),

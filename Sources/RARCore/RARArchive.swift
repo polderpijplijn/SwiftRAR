@@ -52,6 +52,7 @@ public enum StoredExtractor {
         var crc = CRC32()
         var offset = entry.dataOffset
         while offset < end {
+            if Task.isCancelled { throw RARError.cancelled }
             let count = Int(min(UInt64(chunkSize), end - offset))
             let chunk = try source.read(at: offset, count: count)
             crc.update(chunk)

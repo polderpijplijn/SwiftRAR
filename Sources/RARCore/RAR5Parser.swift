@@ -49,9 +49,13 @@ enum RAR5Parser {
         var fileHeaderCount = 0
         var isSolid = false
         var sawMain = false
+        var headerBytes: UInt64 = 0
 
         while position < source.size {
+            if Task.isCancelled { throw RARError.cancelled }
             let header = try readHeader(source, at: position)
+            headerBytes += UInt64(header.bytes.count)
+            if headerBytes > limits.maxHeaderBytes { throw RARError.limitExceeded(.headerBytes) }
             var reader = ByteReader(header.bytes, position: header.bodyStart,
                                     shortReadError: .corruptHeader("field beyond header size"))
 
@@ -81,7 +85,8 @@ enum RAR5Parser {
                 throw RARError.encrypted
 
             case typeFile, typeService:
-                var entry = try parseFileHeader(&reader, extraStart: extraStart, dataOffset: dataOffset)
+                var entry = try parseFileHeader(&reader, extraStart: extraStart, dataOffset: dataOffset,
+                                                maxNameLength: limits.maxNameLength)
                 entry.packedSize = dataSize
                 entry.isSplit = flags & (flagSplitBefore | flagSplitAfter) != 0
                 if type == typeFile {
@@ -134,7 +139,9 @@ enum RAR5Parser {
         return (bytes, 4 + sizeBytes)
     }
 
-    static func parseFileHeader(_ reader: inout ByteReader, extraStart: Int, dataOffset: UInt64) throws -> RAREntry {
+    static func parseFileHeader(
+        _ reader: inout ByteReader, extraStart: Int, dataOffset: UInt64, maxNameLength: Int
+    ) throws -> RAREntry {
         let fileFlags = try reader.readVInt()
         let unpackedSize = try reader.readVInt()
         _ = try reader.readVInt() // attributes
@@ -147,6 +154,7 @@ enum RAR5Parser {
         let compression = try reader.readVInt()
         _ = try reader.readVInt() // host OS
         let nameLength = try reader.readVIntAsInt()
+        guard nameLength <= maxNameLength else { throw RARError.limitExceeded(.nameLength) }
         let nameBytes = try reader.readBytes(nameLength)
         guard reader.position <= extraStart else {
             throw RARError.corruptHeader("file fields overlap extra area")

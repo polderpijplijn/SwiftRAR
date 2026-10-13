@@ -10,9 +10,14 @@ import SwiftRAR
 let result = try convertToCBZ(from: cbrURL, to: cbzURL, limits: .default)
 ```
 
-ZIP input is copied unchanged. RAR input is fully validated before anything is
-written; output goes to a temporary file that replaces the destination only on
-success.
+ZIP input is copied unchanged (up to `maxTotalSize`) and is **not
+validated**: a successful conversion of a ZIP says nothing about it being a
+valid archive, so the caller checks it when reading the CBZ. RAR input is
+fully validated before anything is written; output goes to a temporary file
+that replaces the destination only on success.
+
+The call is synchronous. Run it inside a `Task`: cancelling that task stops
+the work at the next header or output chunk with `RARError.cancelled`.
 
 ## Status
 
@@ -20,7 +25,7 @@ Phase 5 of 7. See `CLAUDE.md` for the roadmap.
 
 | Input                              | Status                            |
 |------------------------------------|-----------------------------------|
-| ZIP / CBZ                          | copied unchanged                  |
+| ZIP / CBZ                          | copied unchanged, not validated   |
 | RAR4 / RAR5, stored entries (`-m0`)| converted, verified by CRC32      |
 | RAR4 compressed (`-m1`...`-m5`), solid or not, with standard filters, including PPMd (`-mct`) | converted, verified by CRC32 |
 | RAR5 compressed (RAR 5.0 and 7.0 algorithms), solid or not, with its four filters | converted, verified by CRC32 |
@@ -60,7 +65,12 @@ Details are in `NOTICE`. The UnRAR source is not in this repository.
 - Malformed input never traps. Every offset and length is checked before use,
   and every failure is a `RARError`.
 - A `Limits` value is required on every call: entry count, entry size, total
-  size, compression ratio, name length, dictionary size and PPMd model memory.
+  size, compression ratio, name length, dictionary size, PPMd model memory and
+  the size of all headers together. Names and header bytes are checked while
+  parsing, before anything is kept.
+- The LZ window is never larger than the data it can hold: an entry's size
+  (non-solid) or all compressed entries together (solid), even when the
+  header asks for a larger dictionary.
 - Names are sanitised: `\` becomes `/`; `.`, `..`, empty components and drive
   letters are removed; control characters are rejected.
 - The CRC32 of every entry is verified. On a mismatch the partial output is deleted.

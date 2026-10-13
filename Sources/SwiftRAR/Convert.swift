@@ -16,7 +16,10 @@ public struct ConversionResult: Equatable, Sendable {
 
 /// Converts a CBR (RAR4/RAR5) or CBZ (ZIP) file to a CBZ at `destination`.
 ///
-/// - ZIP input is copied unchanged.
+/// - ZIP input is copied unchanged, up to `limits.maxTotalSize`. It is
+///   **not validated**: its structure, names, sizes and CRCs are the
+///   caller's to check when it reads the CBZ. A successful conversion of a
+///   ZIP says nothing about it being a valid archive.
 /// - RAR input is validated completely (limits, names, methods) before
 ///   anything is written, then streamed entry by entry into a stored ZIP.
 ///
@@ -48,11 +51,14 @@ public func convertToCBZ(from source: URL, to destination: URL, limits: Limits) 
 
 /// Stream-level conversion; the URL variant above is a thin wrapper.
 /// On error, `output` holds partial data that the caller must discard.
+///
+/// Runs synchronously. Inside a `Task`, cancelling the task stops the work
+/// at the next header or output chunk with `RARError.cancelled`.
 @discardableResult
 public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) throws -> ConversionResult {
     let format = try ArchiveFormat.detect(source)
     if format == .zip {
-        return try copyZIP(source, to: output)
+        return try copyZIP(source, to: output, limits: limits)
     }
 
     let archive = try RARArchive(source: source, limits: limits)
@@ -63,21 +69,20 @@ public func convertToCBZ(source: ByteSource, output: ZIPOutput, limits: Limits) 
     // before it. Links are skipped safely: RAR4 stores a link target raw
     // (UnRAR reads it from the packed data), so it is never part of the
     // solid stream; RAR5 keeps it in a header record.
-    let session = RARDecoder.Session(limits: limits)
+    let session = RARDecoder.Session(archive: archive, limits: limits)
     var total: UInt64 = 0
     for (entry, name) in plan {
-        try writer.beginEntry(name: name, modified: entry.modified)
+        // The extractors verify the CRC of exactly these bytes and throw on a
+        // mismatch, so the writer takes it over instead of a second pass
+        // (about a quarter of the conversion time).
+        try writer.beginEntry(name: name, modified: entry.modified, verifiedCRC: entry.crc32)
         let sink: ([UInt8]) throws -> Void = { try writer.write($0) }
         if entry.isStored {
             try StoredExtractor.extract(entry, from: source, into: sink)
         } else {
             try session.decode(entry, from: source, into: sink)
         }
-        let crc = try writer.endEntry()
-        // The extractor already verified the data; this guards the writer path.
-        if let expected = entry.crc32, crc != expected {
-            throw RARError.badDataCRC(entry: entry.rawName)
-        }
+        try writer.endEntry()
         total = try checkedAdd(total, entry.unpackedSize)
     }
     try writer.finish()
@@ -122,10 +127,12 @@ func planExtraction(_ archive: RARArchive, limits: Limits) throws -> [(RAREntry,
     return plan
 }
 
-private func copyZIP(_ source: ByteSource, to output: ZIPOutput) throws -> ConversionResult {
+private func copyZIP(_ source: ByteSource, to output: ZIPOutput, limits: Limits) throws -> ConversionResult {
+    guard source.size <= limits.maxTotalSize else { throw RARError.limitExceeded(.totalSize) }
     let chunk: UInt64 = 1 << 20
     var offset: UInt64 = 0
     while offset < source.size {
+        if Task.isCancelled { throw RARError.cancelled }
         let count = Int(min(chunk, source.size - offset))
         try output.write(try source.read(at: offset, count: count))
         offset += UInt64(count)

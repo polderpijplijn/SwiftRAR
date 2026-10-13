@@ -19,6 +19,8 @@ struct TestFile {
     var rar5Compression: UInt64?
     var encrypted = false
     var split = false
+    /// Written as a service header (RAR4 0x7A, RAR5 type 3) instead of a file.
+    var isService = false
 }
 
 extension Array where Element == UInt8 {
@@ -92,7 +94,7 @@ enum RAR4Builder {
                 body.le32(UInt32(UInt64(data.count) >> 32))
             }
             body += nameBytes
-            out += block(type: 0x74, flags: flags, body: body,
+            out += block(type: file.isService ? 0x7A : 0x74, flags: flags, body: body,
                          corrupt: options.corruptHeaderCRC && index == 0)
             out += data
         }
@@ -179,7 +181,7 @@ enum RAR5Builder {
                 extra += sized + record
             }
             let flags: UInt64 = file.split ? 0x10 : 0
-            out += header(type: 2, flags: flags, fields: fields, extra: extra,
+            out += header(type: file.isService ? 3 : 2, flags: flags, fields: fields, extra: extra,
                           dataSize: UInt64(data.count),
                           corrupt: options.corruptHeaderCRC && index == 0)
             out += data

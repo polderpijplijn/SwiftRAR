@@ -53,6 +53,27 @@ final class CBZWriterTests: XCTestCase {
         }
     }
 
+    /// A caller-verified CRC lands in both headers as given, without a
+    /// second pass over the data.
+    func testVerifiedCRCIsStoredAsGiven() throws {
+        let output = MemoryOutput()
+        let writer = CBZWriter(output: output)
+        try writer.beginEntry(name: "a.jpg", modified: nil, verifiedCRC: 0x1234_5678)
+        try writer.write([1, 2, 3])
+        XCTAssertEqual(try writer.endEntry(), 0x1234_5678)
+        try writer.finish()
+        let bytes = output.bytes
+        let crc: [UInt8] = [0x78, 0x56, 0x34, 0x12]
+        XCTAssertEqual(Array(bytes[14..<18]), crc, "local header")
+        let central = try XCTUnwrap(firstIndex(of: [0x50, 0x4B, 0x01, 0x02], in: bytes))
+        XCTAssertEqual(Array(bytes[(central + 16)..<(central + 20)]), crc, "central header")
+    }
+
+    private func firstIndex(of pattern: [UInt8], in bytes: [UInt8]) -> Int? {
+        guard bytes.count >= pattern.count else { return nil }
+        return (0...(bytes.count - pattern.count)).first { Array(bytes[$0..<($0 + pattern.count)]) == pattern }
+    }
+
     func testStructure() throws {
         let output = MemoryOutput()
         let writer = CBZWriter(output: output)

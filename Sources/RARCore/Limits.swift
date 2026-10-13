@@ -13,6 +13,7 @@ public struct Limits: Equatable, Sendable {
         case nameLength
         case dictionarySize
         case ppmdMemory
+        case headerBytes
     }
 
     /// Maximum number of file headers (directories included) in the archive.
@@ -29,6 +30,9 @@ public struct Limits: Equatable, Sendable {
     public var maxDictionarySize: UInt64
     /// Maximum PPMd model memory a RAR4 text block may request, in bytes.
     public var maxPPMdMemory: UInt64
+    /// Maximum size of all headers together, in bytes, every block type
+    /// included: what the parser reads and keeps before any data is touched.
+    public var maxHeaderBytes: UInt64
 
     public init(
         maxEntries: Int,
@@ -37,7 +41,8 @@ public struct Limits: Equatable, Sendable {
         maxCompressionRatio: UInt64,
         maxNameLength: Int,
         maxDictionarySize: UInt64,
-        maxPPMdMemory: UInt64 = 256 << 20
+        maxPPMdMemory: UInt64 = 256 << 20,
+        maxHeaderBytes: UInt64 = 16 << 20
     ) {
         self.maxEntries = maxEntries
         self.maxEntrySize = maxEntrySize
@@ -46,6 +51,7 @@ public struct Limits: Equatable, Sendable {
         self.maxNameLength = maxNameLength
         self.maxDictionarySize = maxDictionarySize
         self.maxPPMdMemory = maxPPMdMemory
+        self.maxHeaderBytes = maxHeaderBytes
     }
 
     /// Safe default: generous for any comic book, tight for a zip bomb.
@@ -56,6 +62,7 @@ public struct Limits: Equatable, Sendable {
         maxCompressionRatio: 1_000,
         maxNameLength: 1_024,
         maxDictionarySize: 256 << 20,      // 256 MiB; RAR5 can ask for up to 1 TB
-        maxPPMdMemory: 256 << 20           // 256 MiB, the most a PPMd header can ask for
+        maxPPMdMemory: 256 << 20,          // 256 MiB, the most a PPMd header can ask for
+        maxHeaderBytes: 16 << 20           // 16 MiB of headers: far beyond 10,000 pages
     )
 }

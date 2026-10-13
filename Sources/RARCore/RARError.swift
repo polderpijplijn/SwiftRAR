@@ -37,6 +37,8 @@ public enum RARError: Error, Equatable, Sendable {
     case emptyArchive
     /// Reading from or writing to the file system failed.
     case io(String)
+    /// The task running the work was cancelled.
+    case cancelled
 }
 
 /// Addition without an overflow trap: throws `.corruptHeader` on overflow.

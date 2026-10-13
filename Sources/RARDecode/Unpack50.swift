@@ -68,6 +68,7 @@ struct Unpack50 {
     private var outputSize: UInt64 = 0
 
     private var window: [UInt8] = []
+    var windowCount: Int { window.count }
     /// UnRAR's MaxWinSize; `window` may be larger when reused.
     private var windowSize = 0
     /// UnpPtr.

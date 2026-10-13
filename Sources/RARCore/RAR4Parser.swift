@@ -48,8 +48,10 @@ enum RAR4Parser {
         var fileHeaderCount = 0
         var isSolid = false
         var sawMain = false
+        var headerBytes: UInt64 = 0
 
         while position < source.size {
+            if Task.isCancelled { throw RARError.cancelled }
             let remaining = source.size - position
             guard remaining >= UInt64(baseHeaderSize) else { throw RARError.truncated }
 
@@ -61,6 +63,8 @@ enum RAR4Parser {
             guard headSize >= baseHeaderSize else {
                 throw RARError.corruptHeader("block header size \(headSize) too small")
             }
+            headerBytes += UInt64(headSize)
+            if headerBytes > limits.maxHeaderBytes { throw RARError.limitExceeded(.headerBytes) }
 
             let header = try source.read(at: position, count: headSize)
             var reader = ByteReader(header, position: baseHeaderSize, shortReadError: .corruptHeader("block field beyond header size"))
@@ -81,7 +85,8 @@ enum RAR4Parser {
                     throw RARError.corruptHeader("file header too small")
                 }
                 let parsed = try parseFileHeader(
-                    &reader, flags: flags, dataOffset: try checkedAdd(position, UInt64(headSize))
+                    &reader, flags: flags, dataOffset: try checkedAdd(position, UInt64(headSize)),
+                    maxNameLength: limits.maxNameLength
                 )
                 dataSize = parsed.packedSize
                 if type == typeFile {
@@ -123,7 +128,11 @@ enum RAR4Parser {
         if UInt16(truncatingIfNeeded: crc) != stored { throw RARError.badHeaderCRC }
     }
 
-    static func parseFileHeader(_ reader: inout ByteReader, flags: UInt16, dataOffset: UInt64) throws -> RAREntry {
+    /// The name field may hold a legacy name plus RAR's encoded Unicode
+    /// name, so the field itself gets a looser bound than the decoded name.
+    static func parseFileHeader(
+        _ reader: inout ByteReader, flags: UInt16, dataOffset: UInt64, maxNameLength: Int
+    ) throws -> RAREntry {
         let lowPacked = try reader.readU32()
         let lowUnpacked = try reader.readU32()
         let hostOS = try reader.readU8()
@@ -140,7 +149,11 @@ enum RAR4Parser {
             packedSize |= UInt64(try reader.readU32()) << 32
             unpackedSize |= UInt64(try reader.readU32()) << 32
         }
+        let (fieldLimit, overflow) = maxNameLength.multipliedReportingOverflow(by: 4)
+        guard overflow || nameSize <= fieldLimit else { throw RARError.limitExceeded(.nameLength) }
         let nameBytes = try reader.readBytes(nameSize)
+        let rawName = decodeName(nameBytes)
+        guard rawName.utf8.count <= maxNameLength else { throw RARError.limitExceeded(.nameLength) }
         // Salt, extended time and other trailing fields are covered by HEAD_SIZE
         // and need no parsing: the data always starts at block + HEAD_SIZE.
 
@@ -158,7 +171,7 @@ enum RAR4Parser {
         let dictionarySize: UInt64 = isDirectory ? 0 : UInt64(0x10000) << windowBits
 
         return RAREntry(
-            rawName: decodeName(nameBytes),
+            rawName: rawName,
             packedSize: packedSize,
             unpackedSize: unpackedSize,
             crc32: fileCRC,
