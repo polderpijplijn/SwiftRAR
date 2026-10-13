@@ -22,6 +22,11 @@ Alexander L. Roshal / RARLAB (https://www.rarlab.com). The unRAR license require
    words, is included in license, or in documentation if license
    is not available, and in source code comments of resulting package.
 
+The PPMd model and its memory allocator in RARDecode (PPMdModel.swift,
+PPMdHeap.swift) follow UnRAR's model.cpp and suballoc.cpp, which are based on
+PPMd variant H by Dmitry Shkarin (public domain); the range decoder follows
+UnRAR's coder.cpp, after the carryless range coder by Dmitry Subbotin.
+
 SwiftRAR is a reader only. It does not and must never create or compress RAR
 archives.
 

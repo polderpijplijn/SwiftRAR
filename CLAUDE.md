@@ -6,8 +6,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Build & test
 
-- `swift build`, `swift test` (about 35 s in debug since phase 3; the
-  oracle comparison and the corruption tests dominate). Locally, SwiftPM
+- `swift build`, `swift test` (about 130 s in debug since phase 4; the
+  PPMd fixtures dominate, `rar4-mct-mem` alone takes 20 s in debug and 0.4 s
+  in release). Locally, SwiftPM
   needs to run outside the Claude sandbox, because the clang module cache in
   `/var/folders` is not writable from inside it.
 - Oracle: `Tools/oracle/build-unrar.sh` builds the official unrar from
@@ -28,7 +29,13 @@ C/C++, no libarchive. Everything in this repo is written in English.
   or `-mc<n>d+`/`-mce+`/`-mc<n>a+`/`-mcc+` to force one. RAR 6.24 never
   emits E8E9 or Itanium, so those two are tested relationally (against E8)
   and with a hand-built bundle. `FilterTests.testFixturesRunTheirFilters`
-  asserts which filters each fixture actually runs.
+  asserts which filters each fixture actually runs. `rar a` adds to an
+  existing archive, so a rar call outside `make()` needs an `rm -f` first.
+  The PPMd fixtures (`rar4-mct-*`) are described in the script's phase 4
+  section; `PPMdTests.testFixturesTakeTheirPPMdPaths` asserts which PPMd
+  paths (escapes, restarts, glue) each one takes. RAR 6.24 never emits
+  escape 3 (a filter inside PPMd) and always starts a solid entry with a
+  new PPMd header. Keep fixture entries under the 1000:1 ratio limit.
 - Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
   is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
   The script selects `swift-latest` itself; Xcode stays the default
@@ -39,6 +46,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   After phase 2: 730K runs in 5 min (decoding is real work now), coverage
   970, no findings.
   After phase 3: 705K runs in 5 min, coverage 1362, no findings.
+  After phase 4: 131K runs in 5 min (PPMd is slow and a header may ask for
+  256 MiB), coverage 2126, no findings.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -78,7 +87,7 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `\` becomes `/`; drop `.`, `..` and empty components and a leading drive
   letter; reject control characters; no absolute paths.
 - `Limits` is a required parameter with safe defaults: max entries, entry
-  size, total size, ratio, name length and dictionary size.
+  size, total size, ratio, name length, dictionary size and PPMd memory.
 - Verify the CRC of every entry. On a mismatch, abort and delete the
   half-written output (the URL API writes to a `.partial` temp file).
 - Stream through `ByteSource` (`FileSource`/`DataSource`). Never load the
@@ -99,15 +108,26 @@ C/C++, no libarchive. Everything in this repo is written in English.
   archive; solid entries continue from the previous one; after a failed
   entry it refuses further solid entries) and `decode` (CRC check).
 - `RARDecode/Unpack29`: the unpack29 port, including filter registration
-  (`AddVMCode`) and the filtered write path (`UnpWriteBuf30`). PPMd blocks
-  throw `.unsupportedCompression` mid-stream.
+  (`AddVMCode`) and the filtered write path (`UnpWriteBuf30`), plus the
+  PPMd escapes (`ReadVMCodePPM`, LZ and RLE inside PPMd).
+- `RARDecode/PPMdModel`, `PPMdHeap`: PPMd variant H on one `[UInt8]` heap
+  with `UInt32` offsets (offset 0 is NULL; bytes 0..<12 are the glue
+  sentinel) in the original 12-byte unit layout, so UnRAR's address
+  comparisons (`<= pText`) carry over. Every access is checked. A
+  non-solid entry discards the model (UnRAR keeps it). UnRAR's
+  `GET_SHORT16` is an unsigned cast: reading it as signed broke the SEE
+  mean on binary data only, which `rar4-mct-flt` caught.
+  `StreamBitReader.readByte` yields zeros past the end (capped at 64 KiB);
+  a PPMd entry ends once it read past its end, as in `UnpReadBuf30`.
 - `RARDecode/RarVMFilters`: the six standard filters, recognised by
   program CRC like UnRAR. A non-standard program throws
   `.unsupportedCompression`; there is no general RarVM.
 - Links: RAR4 stores a link target raw (UnRAR reads it straight from the
   packed data), so links never take part in the solid stream and are
   simply skipped.
-- Performance: release build decodes about 120-160 MB/s on the Mac mini.
+- Performance: release build decodes about 120-160 MB/s on the Mac mini
+  for LZ; PPMd 25-50 MB/s on text, 5 MB/s when memory-starved or on random
+  data (about 2x slower than the C unrar).
   Keep hot paths on concrete types across modules: the generic
   `CRC32.update<C: Collection>` was about 20x slower than the `[UInt8]`
   overload and was the bottleneck.
@@ -121,16 +141,14 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `.missingChecksum`.
 - Stored entries in a solid archive are extracted; they do not depend on the
   window.
-- A solid block that mixes PPMd and LZ entries needs phase 4.
 
 ## Next step
 
-Phase 4: PPMd variant H (`model.cpp`, `suballoc.cpp`, `coder.cpp`) for
-RAR4 `-mct` blocks, including filters inside a PPMd block
-(`ReadVMCodePPM`) and the PPMd/LZ switch inside one entry and across solid
-entries. `rar4-mct` then moves into `FixtureTests.supported`. Write the plan
-into `docs/phase4-plan.md` first (see `docs/phase2-plan.md` and
-`docs/phase3-plan.md`).
+Phase 5: RAR5 LZ + filters (`unpack50.cpp`, `unpack50frag.cpp` for large
+dictionaries, the RAR5 filters E8/E8E9/ARM/delta in `unpack50.cpp`'s
+`ApplyFilter`). `rar5-m3`, `rar5-s` and `rar5-mct` (which is plain LZ, RAR5
+has no PPMd) then move into `FixtureTests.supported`. Write the plan into
+`docs/phase5-plan.md` first (see the earlier `docs/phase*-plan.md`).
 
 ## Roadmap
 
@@ -142,7 +160,7 @@ against the oracle (fixtures plus differential checks).
 2. **Done (2026-10-13):** RAR4 v29 LZSS/Huffman (unpack29).
 3. **Done (2026-10-13):** RAR4 standard filters (E8, E8E9, delta, RGB,
    audio, Itanium) without a full RarVM, plus solid archives.
-4. PPMd variant H.
+4. **Done (2026-10-13):** PPMd variant H.
 5. RAR5 LZ + filters (unpack50).
 6. RAR 2.x (unpack20), if CBRs in that format turn up.
 7. Fuzzing in CI, with differential comparison against the oracle. The

@@ -12,6 +12,7 @@ public struct Limits: Equatable, Sendable {
         case compressionRatio
         case nameLength
         case dictionarySize
+        case ppmdMemory
     }
 
     /// Maximum number of file headers (directories included) in the archive.
@@ -26,6 +27,8 @@ public struct Limits: Equatable, Sendable {
     public var maxNameLength: Int
     /// Maximum dictionary size a compressed entry may request, in bytes.
     public var maxDictionarySize: UInt64
+    /// Maximum PPMd model memory a RAR4 text block may request, in bytes.
+    public var maxPPMdMemory: UInt64
 
     public init(
         maxEntries: Int,
@@ -33,7 +36,8 @@ public struct Limits: Equatable, Sendable {
         maxTotalSize: UInt64,
         maxCompressionRatio: UInt64,
         maxNameLength: Int,
-        maxDictionarySize: UInt64
+        maxDictionarySize: UInt64,
+        maxPPMdMemory: UInt64 = 256 << 20
     ) {
         self.maxEntries = maxEntries
         self.maxEntrySize = maxEntrySize
@@ -41,6 +45,7 @@ public struct Limits: Equatable, Sendable {
         self.maxCompressionRatio = maxCompressionRatio
         self.maxNameLength = maxNameLength
         self.maxDictionarySize = maxDictionarySize
+        self.maxPPMdMemory = maxPPMdMemory
     }
 
     /// Safe default: generous for any comic book, tight for a zip bomb.
@@ -50,6 +55,7 @@ public struct Limits: Equatable, Sendable {
         maxTotalSize: 4_000_000_000,       // just under the non-ZIP64 limit
         maxCompressionRatio: 1_000,
         maxNameLength: 1_024,
-        maxDictionarySize: 256 << 20       // 256 MiB; RAR5 can ask for up to 1 TB
+        maxDictionarySize: 256 << 20,      // 256 MiB; RAR5 can ask for up to 1 TB
+        maxPPMdMemory: 256 << 20           // 256 MiB, the most a PPMd header can ask for
     )
 }

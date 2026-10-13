@@ -85,6 +85,23 @@ public struct StreamBitReader {
         return value
     }
 
+    /// How far `readByte` may read past the end before it throws.
+    public static let maxOverread: UInt64 = 1 << 16
+    /// Bytes `readByte` returned as zeros past the end of the range.
+    public private(set) var overreadBytes: UInt64 = 0
+
+    /// Reads one byte at a byte boundary, for the PPMd range coder. Past the
+    /// end it yields zeros, like UnRAR's `GetChar`, and counts them in
+    /// `overreadBytes`; more than `maxOverread` of those throws `.truncated`.
+    public mutating func readByte() throws -> UInt8 {
+        if remainingBits >= 8 {
+            return UInt8(truncatingIfNeeded: try readBits(8))
+        }
+        overreadBytes += 1
+        guard overreadBytes <= Self.maxOverread else { throw RARError.truncated }
+        return 0
+    }
+
     /// Advances to the next byte boundary.
     public mutating func alignToByte() throws {
         try skipBits(Int((8 - consumed % 8) % 8))

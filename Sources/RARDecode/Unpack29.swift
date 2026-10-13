@@ -17,12 +17,13 @@
 // Ported from UnRAR's unpack30.cpp (Unpack29, ReadTables30, ReadEndOfBlock,
 // ReadVMCode, AddVMCode, UnpWriteBuf30, InitFilters30), unpack.cpp
 // (UnpInitData, UnpWriteArea, UnpWriteData) and unpackinline.cpp (CopyString,
-// InsertOldDist). PPMd blocks are not supported yet and end decoding with
-// .unsupportedCompression.
+// InsertOldDist), plus the PPMd paths of unpack30.cpp (the BLOCK_PPM branch
+// of Unpack29, the PPM branch of ReadTables30, ReadVMCodePPM). The PPMd
+// model itself is in PPMdModel.swift.
 
 import RARCore
 
-/// RAR 2.9/3.x LZ + Huffman decoder with RarVM standard filters. One value
+/// RAR 2.9/3.x LZ + Huffman and PPMd decoder with RarVM standard filters. One value
 /// lives for a whole archive, so solid entries can share its state.
 struct Unpack29 {
     // Alphabet sizes: literals/lengths, distances, low distance bits,
@@ -113,6 +114,13 @@ struct Unpack29 {
     /// How often each filter ran; tests use it to prove a fixture filters.
     private(set) var appliedFilters: [StandardFilter: Int] = [:]
 
+    // PPMd (UnRAR's PPM, PPMEscChar, UnpBlockType).
+    private var ppm = PPMdModel()
+    private var ppmEscape = 2
+    private var blockIsPPM = false
+    private var ppmMemoryLimit: UInt64 = 0
+    var ppmCoverage: PPMdCoverage { ppm.coverage }
+
     private struct PendingFilter {
         var filter: StandardFilter
         var blockStart: Int
@@ -130,9 +138,14 @@ struct Unpack29 {
     /// (UnpInitData with Solid set); otherwise everything starts afresh.
     mutating func decode(
         method: Int, input: StreamBitReader, outputSize: UInt64, dictionarySize: UInt64,
-        solid: Bool, into sink: ([UInt8]) throws -> Void
+        ppmMemoryLimit: UInt64, solid: Bool, into sink: ([UInt8]) throws -> Void
     ) throws {
         if !solid || window.isEmpty {
+            // UnpInitData30(false). Unlike UnRAR, which keeps the PPMd model
+            // of the previous file, a non-solid entry starts without one.
+            blockIsPPM = false
+            ppmEscape = 2
+            ppm.discard()
             try allocateWindow(dictionarySize)
             oldDistances = [Int](repeating: Int(UInt32.max), count: 4)
             lastLength = 0
@@ -149,6 +162,7 @@ struct Unpack29 {
         self.method = method
         self.input = input
         self.outputSize = outputSize
+        self.ppmMemoryLimit = ppmMemoryLimit
         writtenFileSize = 0
         entryStart = produced
         nextFlush = produced + UInt64(flushThreshold)
@@ -170,6 +184,9 @@ struct Unpack29 {
         do {
             if input.remainingBits > 0, !tablesRead {
                 try readTables()
+            } else if blockIsPPM {
+                // A solid entry continues an open PPMd block, coder and all.
+                ppm.countSolidContinuation()
             }
             try decodeSymbols(into: sink)
         } catch RARError.truncated {
@@ -185,12 +202,23 @@ struct Unpack29 {
         // marker, which says whether the next solid entry has new tables.
         // Stop once the output is longer than the entry.
         while produced - entryStart <= outputSize {
-            if input.remainingBits == 0 { return }
+            if blockIsPPM {
+                // UnpReadBuf30 fails once the input was read past its end.
+                // Before that, the range coder may still hold symbols.
+                if input.overreadBytes > 0 { return }
+            } else if input.remainingBits == 0 {
+                return
+            }
             if produced >= nextFlush {
                 try writeBuffer(into: sink)
                 let unflushed = (position - writePosition) & mask
                 let remaining = unflushed < flushThreshold ? flushThreshold - unflushed : 0
                 nextFlush = produced + UInt64(max(remaining, Self.blockedRetry))
+            }
+
+            if blockIsPPM {
+                if try !decodePPM() { return }
+                continue
             }
 
             let number = try literals.decodeSymbol(from: &input)
@@ -327,9 +355,12 @@ struct Unpack29 {
         try input.alignToByte()
         let header = try input.peekBits(2)
         if header & 0b10 != 0 {
-            // PPMd block: phase 4.
-            throw RARError.unsupportedCompression(method: method)
+            // A PPMd block; its first byte is also the PPMd flags byte.
+            blockIsPPM = true
+            try ppm.decodeInit(escapeCharacter: &ppmEscape, memoryLimit: ppmMemoryLimit, input: &input)
+            return
         }
+        blockIsPPM = false
         if header & 0b01 == 0 {
             oldTable = [UInt8](repeating: 0, count: Self.tableSize)
         }
@@ -394,6 +425,67 @@ struct Unpack29 {
         tablesRead = true
     }
 
+
+    // MARK: - PPMd
+
+    /// One step of the BLOCK_PPM branch of `Unpack29`: a literal byte or an
+    /// escape sequence. Returns false at the end of the file.
+    private mutating func decodePPM() throws -> Bool {
+        let character = try ppm.decodeChar(&input)
+        if character == ppmEscape {
+            let code = try ppm.decodeChar(&input)
+            ppm.countEscape(code)
+            switch code {
+            case 0:
+                // End of PPMd: tables (LZ or a new PPMd block) follow.
+                try readTables()
+                return true
+            case 2:
+                return false
+            case 3:
+                try readFilterPPM()
+                return true
+            case 4:
+                var distance = 0
+                for _ in 0..<3 {
+                    distance = distance << 8 + (try ppm.decodeChar(&input))
+                }
+                let length = try ppm.decodeChar(&input)
+                try copy(length: length + 32, distance: distance + 2)
+                return true
+            case 5:
+                let length = try ppm.decodeChar(&input)
+                try copy(length: length + 4, distance: 1)
+                return true
+            default:
+                // 1 (and anything else): the escape byte itself.
+                break
+            }
+        }
+        window[position] = UInt8(truncatingIfNeeded: character)
+        position = (position + 1) & mask
+        produced += 1
+        return true
+    }
+
+    /// `ReadVMCodePPM`: a filter header read through the PPMd model.
+    private mutating func readFilterPPM() throws {
+        let firstByte = try ppm.decodeChar(&input)
+        var length = (firstByte & 7) + 1
+        if length == 7 {
+            length = try ppm.decodeChar(&input) + 7
+        } else if length == 8 {
+            let high = try ppm.decodeChar(&input)
+            length = high * 256 + (try ppm.decodeChar(&input))
+        }
+        guard length > 0 else { throw RARError.corruptData("empty filter header") }
+        var code: [UInt8] = []
+        code.reserveCapacity(length)
+        for _ in 0..<length {
+            code.append(UInt8(truncatingIfNeeded: try ppm.decodeChar(&input)))
+        }
+        try addFilter(firstByte: firstByte, code: code)
+    }
 
     // MARK: - Filters
 

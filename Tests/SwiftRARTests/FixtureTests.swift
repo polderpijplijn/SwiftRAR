@@ -14,6 +14,8 @@ final class FixtureTests: XCTestCase {
         "rar4-m0", "rar5-m0", "rar4-m3", "rar4-m3-md64", "rar4-m3-big",
         "rar4-m3-flt", "rar4-s", "rar4-s-flt", "rar4-s-link",
         "rar4-flt-e8", "rar4-flt-audio", "rar4-flt-delta", "rar4-flt-rgb",
+        "rar4-mct", "rar4-mct-s", "rar4-mct-mix", "rar4-mct-mem", "rar4-mct-flt",
+        "rar4-mct-rep",
     ]
 
     func fixtures() throws -> [URL] {

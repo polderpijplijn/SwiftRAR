@@ -11,7 +11,7 @@
 #   m0   store            -> must convert byte-exact (phase 1)
 #   m3   normal LZ        -> .unsupportedCompression until phase 2 / 5
 #   s    solid, -m3       -> .unsupportedCompression until phase 3 / 5
-#   mct  PPMd for text    -> .unsupportedCompression until phase 4
+#   mct  PPMd for text (phase 4)
 #   m3-md64  -m3 with a 64 KB dictionary plus a ~1 MB text (RAR4 only), so
 #            the 256 KB window UnRAR allocates wraps within one entry (phase 2)
 #   m3-big   long distances and low-distance repeats, filters off (phase 2)
@@ -19,6 +19,7 @@
 #   flt-<filter>  one RarVM filter forced per archive (phase 3)
 #   s-flt    solid with filters chosen by rar, several files (phase 3)
 #   s-link   solid with a symlink in the middle of the stream (phase 3)
+#   mct-<s|mix|mem|flt|rep>  PPMd variants, see the phase 4 section (phase 4)
 # RAR5 has no PPMd, so rar5-mct ends up as normal LZ; it is kept for symmetry.
 #
 # Content is deterministic so regenerated fixtures differ only in timestamps.
@@ -179,4 +180,81 @@ with open(os.path.join(sys.argv[1], "c.txt"), "w") as f:
 os.symlink("a.txt", os.path.join(sys.argv[1], "b.txt"))
 PY
 (cd "$work/link" && "$RAR4" a -r -idq -ma4 -m3 -s -ol -ds "$out/rar4-s-link.rar" book)
+# Phase 4: PPMd (-mct). Text from a seeded word generator, so the fixtures
+# are reproducible. mct-s is solid PPMd over several files, mct-mix lets rar
+# choose PPMd or LZ per block over text and binary data, mct-mem forces the
+# maximum order with 1 MB of model memory over text with long repeated
+# passages, so the model restarts and deep contexts occur, and
+# mct-flt mixes PPMd over binary data with LZ plus the audio filter. RAR 6.24
+# never registers a filter from inside a PPMd block (escape 3): once it picks
+# a filter for a file, it switches that file to LZ.
+# `rar a` adds to an existing archive, so remove the old ones first.
+rm -f "$out"/rar4-mct-*.rar
+mkdir -p "$work/ppm"
+python3 - "$work/ppm" <<'PY'
+import math, os, random, struct, sys
+root = sys.argv[1]
+rng = random.Random(5)
+syll = ["ka", "ro", "ti", "ve", "lan", "dor", "mi", "su", "the", "an", "qu", "is", "pel", "ost", "ra", "en"]
+words = ["".join(rng.choice(syll) for _ in range(rng.randrange(1, 4))) for _ in range(3000)]
+def text(n, seed):
+    r = random.Random(seed)
+    out, size = [], 0
+    while size < n:
+        line = " ".join(r.choice(words[: r.choice((50, 400, 3000))]) for _ in range(r.randrange(4, 16)))
+        line = line.capitalize() + r.choice((".", "!", "?", ",")) + "\n"
+        out.append(line); size += len(line)
+    return "".join(out)
+def write(name, rel, data):
+    path = os.path.join(root, name, "book", rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data if isinstance(data, bytes) else data.encode())
+info = "<?xml version=\"1.0\"?>\n<ComicInfo>\n" + "".join(
+    f"  <Page Image=\"{i}\" Type=\"Story\" ImageSize=\"{rng.randrange(10**5, 10**6)}\"/>\n" for i in range(800)) + "</ComicInfo>\n"
+noise = bytes(rng.getrandbits(8) for _ in range(120_000))
+audio = bytearray()
+for n in range(60_000):
+    audio += struct.pack("<h", int(9_000 * math.sin(n * 0.017)) + rng.randrange(-30, 30))
+for name in ("s", "mix", "flt"):
+    write(name, "ComicInfo.xml", info)
+    write(name, "a.txt", text(300_000, 1))
+    write(name, "b.txt", text(150_000, 2))
+    write(name, "empty.txt", b"")
+    write(name, "notes/c.txt", text(80_000, 3))
+for name in ("mix", "flt"):
+    write(name, "page01.jpg", noise)
+    write(name, "sound.wav", bytes(audio))
+# Long repeated passages between the generated text, so high-order contexts
+# (deeper than 46) really occur and the order setting matters.
+passages = [text(3_000, 10 + n) for n in range(6)]
+mixed = []
+for n in range(400):
+    mixed.append(text(3_000, 100 + n))
+    mixed.append(passages[n % 6])
+write("mem", "big.txt", "".join(mixed))
+PY
+(cd "$work/ppm/s" && "$RAR4" a -r -idq -ma4 -m3 -s -mct+ "$out/rar4-mct-s.rar" book)
+(cd "$work/ppm/mix" && "$RAR4" a -r -idq -ma4 -m3 -s -mct "$out/rar4-mct-mix.rar" book)
+(cd "$work/ppm/mem" && "$RAR4" a -r -idq -ma4 -m3 -mc63:1t+ "$out/rar4-mct-mem.rar" book)
+(cd "$work/ppm/flt" && "$RAR4" a -r -idq -ma4 -m3 -s -mct+ -mca+ "$out/rar4-mct-flt.rar" book)
+# mct-rep: long repeated blocks and runs of one character, so the PPMd
+# stream carries LZ matches (escape 4) and RLE (escape 5).
+mkdir -p "$work/ppm/rep/book"
+python3 - "$work/ppm/rep/book" <<'PY'
+import os, random, sys
+r = random.Random(9)
+words = ["".join(r.choice("abcdefghij") for _ in range(r.randrange(2, 8))) for _ in range(500)]
+blocks = [" ".join(r.choice(words) for _ in range(300)) for _ in range(5)]
+out = []
+for n in range(200):
+    c = r.random()
+    if c < 0.3: out.append(r.choice(blocks))
+    elif c < 0.6: out.append(r.choice("x-=*") * r.randrange(50, 300))
+    else: out.append(" ".join(r.choice(words) for _ in range(100)))
+    out.append("\n")
+open(os.path.join(sys.argv[1], "rep.txt"), "w").write("".join(out))
+PY
+rm -f "$out/rar4-mct-rep.rar"
+(cd "$work/ppm/rep" && "$RAR4" a -r -idq -ma4 -m3 -mct+ "$out/rar4-mct-rep.rar" book)
 ls -l "$out"

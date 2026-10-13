@@ -18,12 +18,12 @@ import RARCore
 
 /// Decompression of compressed RAR entries: a Swift port of RARLAB's UnRAR.
 ///
-/// Supported so far: RAR4 UnpVer 29 (LZ + Huffman) with the standard RarVM
-/// filters, solid or not. PPMd blocks throw `.unsupportedCompression`
-/// mid-stream. Later phases add PPMd variant H and unpack50 (RAR5).
+/// Supported so far: RAR4 UnpVer 29 (LZ + Huffman and PPMd variant H) with
+/// the standard RarVM filters, solid or not. A later phase adds unpack50
+/// (RAR5).
 public enum RARDecoder {
-    /// Whether this decoder can unpack the entry. Unknown filter programs and
-    /// PPMd blocks only show up inside the data; decoding throws
+    /// Whether this decoder can unpack the entry. Unknown filter programs
+    /// only show up inside the data; decoding throws
     /// `.unsupportedCompression` then.
     public static func canDecode(_ entry: RAREntry) -> Bool {
         !entry.isStored && !entry.isEncrypted && !entry.isSplit && entry.unpackVersion == 29
@@ -56,6 +56,9 @@ public enum RARDecoder {
         /// How often each standard filter ran in this session.
         public var appliedFilters: [StandardFilter: Int] { unpack?.appliedFilters ?? [:] }
 
+        /// Which PPMd paths this session went through.
+        public var ppmdCoverage: PPMdCoverage { unpack?.ppmCoverage ?? PPMdCoverage() }
+
         /// Unpacks a compressed entry, streaming the output to `sink`, and
         /// verifies its CRC32.
         ///
@@ -79,7 +82,8 @@ public enum RARDecoder {
             unpack = nil
             var crc = CRC32()
             try state.decode(method: entry.method, input: input, outputSize: entry.unpackedSize,
-                             dictionarySize: entry.dictionarySize, solid: entry.isSolid) { chunk in
+                             dictionarySize: entry.dictionarySize, ppmMemoryLimit: limits.maxPPMdMemory,
+                             solid: entry.isSolid) { chunk in
                 crc.update(chunk)
                 try sink(chunk)
             }

@@ -16,14 +16,14 @@ success.
 
 ## Status
 
-Phase 3 of 7. See `CLAUDE.md` for the roadmap.
+Phase 4 of 7. See `CLAUDE.md` for the roadmap.
 
 | Input                              | Status                            |
 |------------------------------------|-----------------------------------|
 | ZIP / CBZ                          | copied unchanged                  |
 | RAR4 / RAR5, stored entries (`-m0`)| converted, verified by CRC32      |
-| RAR4 compressed (`-m1`...`-m5`), solid or not, with standard filters | converted, verified by CRC32 |
-| RAR4 PPMd (`-mct`), non-standard RarVM programs | `RARError.unsupportedCompression` |
+| RAR4 compressed (`-m1`...`-m5`), solid or not, with standard filters, including PPMd (`-mct`) | converted, verified by CRC32 |
+| RAR4 with non-standard RarVM programs | `RARError.unsupportedCompression` |
 | RAR5 compressed                    | `RARError.unsupportedCompression` |
 | Encrypted archives or entries      | `RARError.encrypted`              |
 | Multi-volume archives              | `RARError.multiVolume`            |
@@ -36,7 +36,7 @@ Phase 3 of 7. See `CLAUDE.md` for the roadmap.
 | `SwiftRAR`  | `convertToCBZ(from:to:limits:)`; re-exports RARCore + CBZWriter | MIT     |
 | `RARCore`   | format detection, RAR4/RAR5 headers, CRC32, bit reader, Huffman, store extraction, name sanitising, `Limits` | MIT |
 | `CBZWriter` | streaming stored-ZIP writer (UTF-8 names, DOS time, no ZIP64)   | MIT     |
-| (RARDecode) | decompression, a Swift port of UnRAR; internal target, a stub for now | unRAR license |
+| (RARDecode) | decompression (RAR4 LZ, standard filters, PPMd), a Swift port of UnRAR; internal target | unRAR license |
 
 ## License
 
@@ -59,7 +59,7 @@ Details are in `NOTICE`. The UnRAR source is not in this repository.
 - Malformed input never traps. Every offset and length is checked before use,
   and every failure is a `RARError`.
 - A `Limits` value is required on every call: entry count, entry size, total
-  size, compression ratio, name length and dictionary size.
+  size, compression ratio, name length, dictionary size and PPMd model memory.
 - Names are sanitised: `\` becomes `/`; `.`, `..`, empty components and drive
   letters are removed; control characters are rejected.
 - The CRC32 of every entry is verified. On a mismatch the partial output is deleted.
@@ -81,7 +81,7 @@ swift test
   `unrar x`. Tests that need the oracle are skipped when it is missing.
 - **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` plus
   `rar4-m3-{md64,big,flt}.rar`, `rar4-flt-{e8,audio,delta,rgb}.rar` and
-  `rar4-s-{flt,link}.rar` are committed.
+  `rar4-s-{flt,link}.rar` and `rar4-mct-{s,mix,mem,flt,rep}.rar` are committed.
   `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
   `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
   can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.
