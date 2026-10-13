@@ -20,7 +20,13 @@ C/C++, no libarchive. Everything in this repo is written in English.
   sandbox, pass `TMPDIR` set to the scratchpad.
   Naming is `<rar4|rar5>-<variant>.rar`. `FixtureTests.storedVariants` lists
   the variants that must convert. Add a variant there when its phase lands.
-- Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain.
+- Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
+  is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
+  The script selects `swift-latest` itself; Xcode stays the default
+  elsewhere. Run it outside the sandbox. Example:
+  `Fuzz/build.sh run -max_total_time=300 -artifact_prefix=Fuzz/`. Any
+  `crash-*` file is a bug: add it as a regression test.
+  Baseline on 2026-10-13: 13.7M runs in 5 min, coverage 404, no findings.
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -87,6 +93,17 @@ C/C++, no libarchive. Everything in this repo is written in English.
 - Stored entries in a solid archive are extracted; they do not depend on the
   window.
 
+## Next step
+
+Phase 2: port unpack29 (RAR4 LZSS/Huffman) from UnRAR (`unpack30.cpp`, with
+shared parts of `unpack.cpp` and `unpackinline.cpp`; the source comes from
+`Tools/oracle/.build/unrar`) into `Sources/RARDecode`, using
+RARCore's `BitReader` and `HuffmanTable`. Make `RARDecoder.canDecode`
+return true for RAR4 entries with UnpVer 29 that are non-solid and need
+no filters. Then move `rar4-m3` into `FixtureTests.storedVariants` (rename
+the set to "supported") and compare it against the oracle. Solid
+archives and filters are phase 3.
+
 ## Roadmap
 
 Each phase ports the matching part of UnRAR into RARDecode and is validated
@@ -100,4 +117,5 @@ against the oracle (fixtures plus differential checks).
 4. PPMd variant H.
 5. RAR5 LZ + filters (unpack50).
 6. RAR 2.x (unpack20), if CBRs in that format turn up.
-7. Fuzzing in CI, with differential comparison against the oracle.
+7. Fuzzing in CI, with differential comparison against the oracle. The
+   harness exists already (`Fuzz/`); this phase adds CI and differential checks.
