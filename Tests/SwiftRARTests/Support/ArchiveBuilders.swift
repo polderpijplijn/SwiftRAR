@@ -14,6 +14,9 @@ struct TestFile {
     var method = 0
     /// RAR4 UnpVer (29 = RAR 2.9/3.x); ignored by the RAR5 builder.
     var unpackVersion: UInt8 = 29
+    /// RAR5 compression information (version, solid, method, dictionary);
+    /// overrides `method` in the RAR5 builder.
+    var rar5Compression: UInt64?
     var encrypted = false
     var split = false
 }
@@ -160,7 +163,7 @@ enum RAR5Builder {
             if options.includeCRC && !file.isDirectory {
                 fields.le32(file.crcOverride ?? CRC32.checksum(data))
             }
-            fields.vint(UInt64(file.method) << 7)   // version 0, dictionary 128 KiB
+            fields.vint(file.rar5Compression ?? UInt64(file.method) << 7) // default: version 0, 128 KiB
             fields.vint(1)                          // host OS: Unix
             let nameBytes = Array(file.name.utf8)
             fields.vint(UInt64(nameBytes.count))

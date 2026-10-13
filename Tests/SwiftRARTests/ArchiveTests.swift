@@ -218,9 +218,9 @@ final class RAR5Tests: ArchiveTestCase {
         assertConversionThrows(build([TestFile(name: "a", contents: [1], split: true)]), .multiVolume)
     }
 
-    func testCompressedEntryIsUnsupported() {
-        assertConversionThrows(build([TestFile(name: "a", contents: [1], method: 5)]),
-                               .unsupportedCompression(method: 5))
+    func testGarbageCompressedDataIsRejected() {
+        // One raw byte is no valid unpack50 stream: the block header runs off the end.
+        assertConversionThrows(build([TestFile(name: "a", contents: [1], method: 5)]), .truncated)
     }
 
     func testRedirectionRecordIsSkipped() {

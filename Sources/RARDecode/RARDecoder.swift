@@ -18,15 +18,16 @@ import RARCore
 
 /// Decompression of compressed RAR entries: a Swift port of RARLAB's UnRAR.
 ///
-/// Supported so far: RAR4 UnpVer 29 (LZ + Huffman and PPMd variant H) with
-/// the standard RarVM filters, solid or not. A later phase adds unpack50
-/// (RAR5).
+/// Supported: RAR4 UnpVer 29 (LZ + Huffman and PPMd variant H) with the
+/// standard RarVM filters, and RAR5 (unpack50, both the RAR 5.0 and the
+/// RAR 7.0 algorithm) with its four filters, solid or not.
 public enum RARDecoder {
     /// Whether this decoder can unpack the entry. Unknown filter programs
     /// only show up inside the data; decoding throws
     /// `.unsupportedCompression` then.
     public static func canDecode(_ entry: RAREntry) -> Bool {
-        !entry.isStored && !entry.isEncrypted && !entry.isSplit && entry.unpackVersion == 29
+        !entry.isStored && !entry.isEncrypted && !entry.isSplit
+            && [29, RAREntry.unpackVersionRAR5, RAREntry.unpackVersionRAR7].contains(entry.unpackVersion)
     }
 
     /// Unpacks a single compressed entry with a fresh session. A solid entry
@@ -46,6 +47,7 @@ public enum RARDecoder {
     public final class Session {
         private let limits: Limits
         private var unpack: Unpack29?
+        private var unpack50: Unpack50?
         /// Set when an entry failed; the solid stream after it is unusable.
         private var failed = false
 
@@ -58,6 +60,9 @@ public enum RARDecoder {
 
         /// Which PPMd paths this session went through.
         public var ppmdCoverage: PPMdCoverage { unpack?.ppmCoverage ?? PPMdCoverage() }
+
+        /// Which unpack50 (RAR5) paths this session went through.
+        public var rar5Coverage: RAR5Coverage { unpack50?.coverage ?? RAR5Coverage() }
 
         /// Unpacks a compressed entry, streaming the output to `sink`, and
         /// verifies its CRC32.
@@ -78,16 +83,27 @@ public enum RARDecoder {
 
             failed = true
             let input = try StreamBitReader(source: source, offset: entry.dataOffset, count: entry.packedSize)
-            var state = try unpack ?? Unpack29()
-            unpack = nil
             var crc = CRC32()
-            try state.decode(method: entry.method, input: input, outputSize: entry.unpackedSize,
-                             dictionarySize: entry.dictionarySize, ppmMemoryLimit: limits.maxPPMdMemory,
-                             solid: entry.isSolid) { chunk in
+            let checked: ([UInt8]) throws -> Void = { chunk in
                 crc.update(chunk)
                 try sink(chunk)
             }
-            unpack = state
+            if entry.unpackVersion == 29 {
+                var state = try unpack ?? Unpack29()
+                unpack = nil
+                try state.decode(method: entry.method, input: input, outputSize: entry.unpackedSize,
+                                 dictionarySize: entry.dictionarySize, ppmMemoryLimit: limits.maxPPMdMemory,
+                                 solid: entry.isSolid, into: checked)
+                unpack = state
+            } else {
+                var state = try unpack50 ?? Unpack50()
+                unpack50 = nil
+                try state.decode(input: input, outputSize: entry.unpackedSize,
+                                 dictionarySize: entry.dictionarySize,
+                                 extraDistance: entry.unpackVersion == RAREntry.unpackVersionRAR7,
+                                 solid: entry.isSolid, into: checked)
+                unpack50 = state
+            }
             if crc.value != expectedCRC { throw RARError.badDataCRC(entry: entry.rawName) }
             failed = false
         }

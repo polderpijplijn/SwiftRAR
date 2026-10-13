@@ -6,7 +6,7 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Build & test
 
-- `swift build`, `swift test` (about 130 s in debug since phase 4; the
+- `swift build`, `swift test` (about 145 s in debug since phase 5; the
   PPMd fixtures dominate, `rar4-mct-mem` alone takes 20 s in debug and 0.4 s
   in release). Locally, SwiftPM
   needs to run outside the Claude sandbox, because the clang module cache in
@@ -36,6 +36,15 @@ C/C++, no libarchive. Everything in this repo is written in English.
   paths (escapes, restarts, glue) each one takes. RAR 6.24 never emits
   escape 3 (a filter inside PPMd) and always starts a solid entry with a
   new PPMd header. Keep fixture entries under the 1000:1 ratio limit.
+  Exception: in solid RAR5 fixtures RAR 7 packs near-copies of an earlier
+  file far below that (`rar5-s`, `rar5-s-link`); `FixtureTests.limitOverrides`
+  loosens the ratio for exactly those. The RAR5 fixtures (phase 5 section of
+  the script) are made with RAR 7.23, which never emits E8E9 or ARM, starts
+  every block with new tables, and writes a dictionary of about the data
+  size rounded up to a power of two (non-power-of-two sizes and the RAR 7.0
+  algorithm only exist above 4 GB). `Unpack50Tests.testFixturesTakeTheirPaths`
+  asserts what each covers; rare paths use the test-only `RAR5Stream`
+  writer (fixed flat tables, no match finding).
 - Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
   is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
   The script selects `swift-latest` itself; Xcode stays the default
@@ -48,6 +57,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   After phase 3: 705K runs in 5 min, coverage 1362, no findings.
   After phase 4: 131K runs in 5 min (PPMd is slow and a header may ask for
   256 MiB), coverage 2126, no findings.
+  After phase 5: 110K runs in 5 min, coverage 2274, no findings (seeds
+  are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
 - Extract ZIPs in tests with `Tools.extractZIP` (bsdtar), never with
   `unzip -d`: macOS unzip mangles UTF-8 names.
 - **Run a new test against the unfixed code first.** If it does not fail
@@ -104,7 +115,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
 - `RARCore/StreamBitReader`: chunked bit input over a `ByteSource` range.
   `HuffmanTable.decodeSymbol(from: inout StreamBitReader)` is the
   table-driven hot path; the `BitReader` variant is the bit-by-bit reference.
-- `RARDecode/RARDecoder`: `canDecode` (RAR4 UnpVer 29), `Session` (one per
+- `RARDecode/RARDecoder`: `canDecode` (RAR4 UnpVer 29, RAR5 50 and 70;
+  `RAR5Parser` maps algorithm 0, and 1 with the compat flag, to 50 and
+  plain 1 to 70, as UnRAR does), `Session` (one per
   archive; solid entries continue from the previous one; after a failed
   entry it refuses further solid entries) and `decode` (CRC check).
 - `RARDecode/Unpack29`: the unpack29 port, including filter registration
@@ -119,6 +132,15 @@ C/C++, no libarchive. Everything in this repo is written in English.
   mean on binary data only, which `rar4-mct-flt` caught.
   `StreamBitReader.readByte` yields zeros past the end (capped at 64 KiB);
   a PPMd entry ends once it read past its end, as in `UnpReadBuf30`.
+- `RARDecode/Unpack50`: the unpack50 port (RAR5). Window of any size
+  (`max(dictionary, 256 KB)`, compare-and-subtract instead of a mask),
+  block ends at bit precision, `UnpWriteBuf` with `NextWindow`, distances
+  in 64 bits (two reads above 16 high bits). A distance beyond the data
+  of the solid block produces zeros, so a reused window never leaks the
+  previous entry. An unknown filter type throws `.corruptData`; filtered
+  blocks are capped at the entry size (UnRAR writes them whole).
+  `unpack50frag.cpp` (32-bit fragmented window) and `unpack50mt.cpp` are
+  not ported. `RAR5Filters`: delta, E8, E8E9, ARM on plain arrays.
 - `RARDecode/RarVMFilters`: the six standard filters, recognised by
   program CRC like UnRAR. A non-standard program throws
   `.unsupportedCompression`; there is no general RarVM.
@@ -126,8 +148,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
   packed data), so links never take part in the solid stream and are
   simply skipped.
 - Performance: release build decodes about 120-160 MB/s on the Mac mini
-  for LZ; PPMd 25-50 MB/s on text, 5 MB/s when memory-starved or on random
-  data (about 2x slower than the C unrar).
+  for RAR4 LZ, 80-270 MB/s for RAR5 (filtered data is the slow end; unrar
+  is about 3x faster there); PPMd 25-50 MB/s on text, 5 MB/s when
+  memory-starved or on random data (about 2x slower than the C unrar).
   Keep hot paths on concrete types across modules: the generic
   `CRC32.update<C: Collection>` was about 20x slower than the `[UInt8]`
   overload and was the bottleneck.
@@ -144,11 +167,11 @@ C/C++, no libarchive. Everything in this repo is written in English.
 
 ## Next step
 
-Phase 5: RAR5 LZ + filters (`unpack50.cpp`, `unpack50frag.cpp` for large
-dictionaries, the RAR5 filters E8/E8E9/ARM/delta in `unpack50.cpp`'s
-`ApplyFilter`). `rar5-m3`, `rar5-s` and `rar5-mct` (which is plain LZ, RAR5
-has no PPMd) then move into `FixtureTests.supported`. Write the plan into
-`docs/phase5-plan.md` first (see the earlier `docs/phase*-plan.md`).
+Phase 7: fuzzing in CI with differential comparison against the oracle
+(phase 6, RAR 2.x, only if such CBRs turn up). Write the plan into
+`docs/phase7-plan.md` first (see the earlier `docs/phase*-plan.md`).
+Grim Reader can now convert every RAR4/RAR5 CBR that rar 3.x and later
+writes; worth a test on real comics on the device before more phases.
 
 ## Roadmap
 
@@ -161,7 +184,7 @@ against the oracle (fixtures plus differential checks).
 3. **Done (2026-10-13):** RAR4 standard filters (E8, E8E9, delta, RGB,
    audio, Itanium) without a full RarVM, plus solid archives.
 4. **Done (2026-10-13):** PPMd variant H.
-5. RAR5 LZ + filters (unpack50).
+5. **Done (2026-10-13):** RAR5 LZ + filters (unpack50).
 6. RAR 2.x (unpack20), if CBRs in that format turn up.
 7. Fuzzing in CI, with differential comparison against the oracle. The
    harness exists already (`Fuzz/`); this phase adds CI and differential checks.

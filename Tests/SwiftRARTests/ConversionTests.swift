@@ -109,7 +109,7 @@ final class ConversionTests: XCTestCase {
         try assertMatchesOracle(input: input, unrar: unrar, unzip: unzip, in: directory, file: file, line: line)
     }
 
-    func assertMatchesOracle(input: URL, unrar: URL, unzip: URL, in directory: URL,
+    func assertMatchesOracle(input: URL, unrar: URL, unzip: URL, in directory: URL, limits: Limits = .default,
                              file: StaticString = #filePath, line: UInt = #line) throws {
         let oracleDirectory = directory.appendingPathComponent("oracle-\(input.lastPathComponent)")
         try FileManager.default.createDirectory(at: oracleDirectory, withIntermediateDirectories: true)
@@ -117,7 +117,7 @@ final class ConversionTests: XCTestCase {
         XCTAssertEqual(oracle.status, 0, "unrar: \(oracle.output)", file: file, line: line)
 
         let cbz = directory.appendingPathComponent("\(input.lastPathComponent).cbz")
-        try convertToCBZ(from: input, to: cbz, limits: .default)
+        try convertToCBZ(from: input, to: cbz, limits: limits)
         let ours = directory.appendingPathComponent("ours-\(input.lastPathComponent)")
         let integrity = try Tools.run(unzip, ["-t", cbz.path])
         XCTAssertEqual(integrity.status, 0, integrity.output, file: file, line: line)

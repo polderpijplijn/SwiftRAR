@@ -37,6 +37,9 @@ enum RAR5Parser {
     static let extraTime: UInt64 = 0x03
     static let extraRedirection: UInt64 = 0x05
 
+    // Compression information.
+    static let compressionRAR5Compat: UInt64 = 0x10_0000
+
     static let maxHeaderSize: UInt64 = 2 << 20
     static let maxSizeVIntBytes = 3
 
@@ -154,13 +157,20 @@ enum RAR5Parser {
 
         let algorithmVersion = Int(compression & 0x3F)
         let method = Int((compression >> 7) & 0x07)
-        let dictionaryBits = (compression >> 10) & 0x1F
-        var dictionarySize = UInt64(0x20000) << dictionaryBits
-        if algorithmVersion == 1 {
-            // RAR7: fraction in 1/32 of the base size.
-            let fraction = (compression >> 15) & 0x1F
-            dictionarySize += dictionarySize / 32 * fraction
-        } else if algorithmVersion != 0 {
+        // Version 0 has 4 dictionary bits (128 KiB to 4 GiB), version 1 has 5.
+        var dictionarySize: UInt64
+        let unpackVersion: Int
+        switch algorithmVersion {
+        case 0:
+            dictionarySize = UInt64(0x20000) << ((compression >> 10) & 0x0F)
+            unpackVersion = RAREntry.unpackVersionRAR5
+        case 1:
+            // RAR7: fraction in 1/32 of the base size. The compat flag says
+            // the data uses the RAR5 algorithm despite the RAR7 dictionary.
+            dictionarySize = UInt64(0x20000) << ((compression >> 10) & 0x1F)
+            dictionarySize += dictionarySize / 32 * ((compression >> 15) & 0x1F)
+            unpackVersion = compression & compressionRAR5Compat != 0 ? RAREntry.unpackVersionRAR5 : RAREntry.unpackVersionRAR7
+        default:
             throw RARError.unsupportedFormat("RAR5 algorithm version \(algorithmVersion)")
         }
         if fileFlags & fileUnknownSize != 0 {
@@ -198,7 +208,7 @@ enum RAR5Parser {
             unpackedSize: unpackedSize,
             crc32: crc,
             method: method,
-            unpackVersion: algorithmVersion,
+            unpackVersion: unpackVersion,
             dictionarySize: dictionarySize,
             isDirectory: fileFlags & fileDirectory != 0,
             isEncrypted: isEncrypted,

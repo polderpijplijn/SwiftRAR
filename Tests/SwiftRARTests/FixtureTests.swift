@@ -15,8 +15,19 @@ final class FixtureTests: XCTestCase {
         "rar4-m3-flt", "rar4-s", "rar4-s-flt", "rar4-s-link",
         "rar4-flt-e8", "rar4-flt-audio", "rar4-flt-delta", "rar4-flt-rgb",
         "rar4-mct", "rar4-mct-s", "rar4-mct-mix", "rar4-mct-mem", "rar4-mct-flt",
-        "rar4-mct-rep",
+        "rar4-mct-rep", "rar5-m3", "rar5-s", "rar5-mct",
+        "rar5-m3-md128", "rar5-m3-big", "rar5-flt-e8", "rar5-flt-delta", "rar5-s-flt", "rar5-s-link",
     ]
+
+    /// Fixtures that need looser limits than `.default`. In a solid RAR5
+    /// stream a near-copy of an earlier file packs to almost nothing:
+    /// `ComicInfo.xml` in `rar5-s` (1185:1) and `a.txt` in `rar5-s-link`,
+    /// which RAR 7 puts after `c.txt` that contains it (1268:1).
+    static let limitOverrides: [String: Limits] = {
+        var looser = Limits.default
+        looser.maxCompressionRatio = 2_000
+        return ["rar5-s": looser, "rar5-s-link": looser]
+    }()
 
     func fixtures() throws -> [URL] {
         let all = (try? FileManager.default.contentsOfDirectory(
@@ -38,7 +49,8 @@ final class FixtureTests: XCTestCase {
         let directory = try makeTemporaryDirectory(self)
         let helper = ConversionTests()
         for url in supported {
-            try helper.assertMatchesOracle(input: url, unrar: unrar, unzip: unzip, in: directory)
+            let limits = Self.limitOverrides[url.deletingPathExtension().lastPathComponent] ?? .default
+            try helper.assertMatchesOracle(input: url, unrar: unrar, unzip: unzip, in: directory, limits: limits)
         }
     }
 

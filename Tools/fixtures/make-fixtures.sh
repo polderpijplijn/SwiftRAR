@@ -258,3 +258,23 @@ PY
 rm -f "$out/rar4-mct-rep.rar"
 (cd "$work/ppm/rep" && "$RAR4" a -r -idq -ma4 -m3 -mct+ "$out/rar4-mct-rep.rar" book)
 ls -l "$out"
+
+# Phase 5: RAR5 (unpack50) with RAR 7.23, over the same data as the RAR4
+# fixtures. m3-md128 wraps the 256 KB window inside long.txt (rar writes
+# -md128k, UnRAR allocates at least 256 KB), m3-big has long distances with
+# filters off, flt-e8 and flt-delta force one filter each (flt-e8 with a
+# 128 KB dictionary, so filtered blocks meet the window wrap), s-flt is solid
+# with filters left to rar, and s-link is solid with a symlink in the middle.
+# RAR 7.23 never emits E8E9 (not even for an .exe) or ARM, and starts every
+# block with new tables, so those paths have no fixture.
+rm -f "$out"/rar5-m3-md128.rar "$out"/rar5-m3-big.rar "$out"/rar5-flt-*.rar \
+      "$out"/rar5-s-flt.rar "$out"/rar5-s-link.rar
+make "$RAR5" "rar5-m3-md128" -ma5 -m3 -md128k
+(
+    work="$work/big"
+    make "$RAR5" "rar5-m3-big" -ma5 -m3 -mcd- -mce- -mci- -mca- -mcc-
+)
+(cd "$work/flt/e8" && "$RAR5" a -r -idq -ma5 -m3 -md128k -mce+ "$out/rar5-flt-e8.rar" book)
+(cd "$work/flt/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/rar5-flt-delta.rar" book)
+(cd "$work/flt/all" && "$RAR5" a -r -idq -ma5 -m3 -s "$out/rar5-s-flt.rar" book)
+(cd "$work/link" && "$RAR5" a -r -idq -ma5 -m3 -s -ol -ds "$out/rar5-s-link.rar" book)

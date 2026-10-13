@@ -16,15 +16,16 @@ success.
 
 ## Status
 
-Phase 4 of 7. See `CLAUDE.md` for the roadmap.
+Phase 5 of 7. See `CLAUDE.md` for the roadmap.
 
 | Input                              | Status                            |
 |------------------------------------|-----------------------------------|
 | ZIP / CBZ                          | copied unchanged                  |
 | RAR4 / RAR5, stored entries (`-m0`)| converted, verified by CRC32      |
 | RAR4 compressed (`-m1`...`-m5`), solid or not, with standard filters, including PPMd (`-mct`) | converted, verified by CRC32 |
+| RAR5 compressed (RAR 5.0 and 7.0 algorithms), solid or not, with its four filters | converted, verified by CRC32 |
 | RAR4 with non-standard RarVM programs | `RARError.unsupportedCompression` |
-| RAR5 compressed                    | `RARError.unsupportedCompression` |
+| RAR 2.x compression (UnpVer 20/26) | `RARError.unsupportedCompression` |
 | Encrypted archives or entries      | `RARError.encrypted`              |
 | Multi-volume archives              | `RARError.multiVolume`            |
 | RAR 1.4, SFX                       | not supported                     |
@@ -36,7 +37,7 @@ Phase 4 of 7. See `CLAUDE.md` for the roadmap.
 | `SwiftRAR`  | `convertToCBZ(from:to:limits:)`; re-exports RARCore + CBZWriter | MIT     |
 | `RARCore`   | format detection, RAR4/RAR5 headers, CRC32, bit reader, Huffman, store extraction, name sanitising, `Limits` | MIT |
 | `CBZWriter` | streaming stored-ZIP writer (UTF-8 names, DOS time, no ZIP64)   | MIT     |
-| (RARDecode) | decompression (RAR4 LZ, standard filters, PPMd), a Swift port of UnRAR; internal target | unRAR license |
+| (RARDecode) | decompression (RAR4 LZ, standard filters, PPMd; RAR5 LZ and filters), a Swift port of UnRAR; internal target | unRAR license |
 
 ## License
 
@@ -81,7 +82,9 @@ swift test
   `unrar x`. Tests that need the oracle are skipped when it is missing.
 - **Fixtures**: `Tests/Fixtures/{rar4,rar5}-{m0,m3,s,mct}.rar` plus
   `rar4-m3-{md64,big,flt}.rar`, `rar4-flt-{e8,audio,delta,rgb}.rar` and
-  `rar4-s-{flt,link}.rar` and `rar4-mct-{s,mix,mem,flt,rep}.rar` are committed.
+  `rar4-s-{flt,link}.rar`, `rar4-mct-{s,mix,mem,flt,rep}.rar`,
+  `rar5-m3-{md128,big}.rar`, `rar5-flt-{e8,delta}.rar` and
+  `rar5-s-{flt,link}.rar` are committed.
   `Tools/fixtures/make-fixtures.sh` regenerates them with RARLAB's official
   `rar` for macOS. It downloads two pinned versions: 6.24 for RAR4 (RAR 7
   can no longer create RAR4) and 7.23 for RAR5. The Homebrew cask is disabled.

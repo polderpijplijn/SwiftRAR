@@ -16,7 +16,8 @@ public struct RAREntry: Equatable, Sendable {
     public var crc32: UInt32?
     /// 0 = store, 1...5 = compression level (RAR4 0x31...0x35, RAR5 1...5).
     public var method: Int
-    /// RAR4: UnpVer (e.g. 29); RAR5: algorithm version (0 = RAR5, 1 = RAR7).
+    /// RAR4: UnpVer (e.g. 29). RAR5 archives: 50 for the RAR 5.0 algorithm
+    /// (also RAR7 headers with the compat flag), 70 for RAR 7.0, as in UnRAR.
     public var unpackVersion: Int
     /// Dictionary size the decoder needs for this entry.
     public var dictionarySize: UInt64
@@ -33,6 +34,10 @@ public struct RAREntry: Equatable, Sendable {
     public var dataOffset: UInt64
 
     public var isStored: Bool { method == 0 }
+
+    /// `unpackVersion` of RAR5 archives, as UnRAR's VER_PACK5 and VER_PACK7.
+    public static let unpackVersionRAR5 = 50
+    public static let unpackVersionRAR7 = 70
 
     public init(
         rawName: String,
