@@ -1,6 +1,6 @@
 # Review hardening plan (issue #2)
 
-Issue #2 reviewed commit 4712457 before the Grim Reader integration. This
+Issue #2 reviewed commit 74115d5 before the Grim Reader integration. This
 plan covers its findings and acceptance criteria. Work happens in SwiftRAR
 only; the Grim Reader side (its memory budget) is noted at the end.
 
@@ -161,10 +161,10 @@ oracle. Every new test failed against the unfixed code first.
 Still open, for the Grim Reader integration: its own `Limits` and
 concurrency budget, and benchmarks with real comics on an iPhone.
 
-## Follow-up review of fb64b49
+## Follow-up review of 8374d21
 
 Two cases from the follow-up review in issue #2, both reproduced as tests
-that failed against fb64b49 exactly as reported (`.truncated` with zero
+that failed against 8374d21 exactly as reported (`.truncated` with zero
 bytes; success after cancellation with six more reads).
 
 1. **Filter block in a bounded window.** A RAR5 filter over a whole

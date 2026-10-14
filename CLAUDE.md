@@ -45,8 +45,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   algorithm only exist above 4 GB). `Unpack50Tests.testFixturesTakeTheirPaths`
   asserts what each covers; rare paths use the test-only `RAR5Stream`
   writer (fixed flat tables, no match finding).
-- Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Swift 6.4.1
-  is installed per user in `~/Library/Developer/Toolchains` on the Mac mini.
+- Fuzzing: `Fuzz/build.sh [run]` needs the swift.org toolchain. Install one
+  per user in `~/Library/Developer/Toolchains` (tested with 6.4.1).
   The script selects `swift-latest` itself; Xcode stays the default
   elsewhere. Run it outside the sandbox. Example:
   `Fuzz/build.sh run -max_total_time=300 -artifact_prefix=Fuzz/`. Any
@@ -63,9 +63,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
   After the review hardening (issue #2): 108K runs in 5 min, coverage
   2300, no findings.
-- CI runs only on the Mac mini (issue #4): runner `mac-mini-swiftrar` in
-  `~/actions-runner-swiftrar` (launchd service, label `swiftrar`), one job
-  at a time, no GitHub-hosted minutes. No CI while the mini is offline.
+- CI runs on a self-hosted macOS runner (label `swiftrar`, issue #4), one
+  job at a time. It moves to GitHub-hosted runners once the repo is public
+  (#6): a self-hosted runner must never run pull requests from forks.
   Legs: `oldest` = `/Applications/Xcode.app` (26.4.1, for the promised
   `swift-tools-version:6.2`) and `next` = the newest Xcode beta
   (`continue-on-error`); update the beta path when it changes. Tests run in
@@ -106,7 +106,7 @@ never describe it as just MIT. `RARCore` and `CBZWriter` alone are MIT.
 
 ## Hard safety rules
 
-- **No `Unsafe*` pointers.** An exception needs Maarten's explicit approval,
+- **No `Unsafe*` pointers.** An exception needs the maintainer's explicit approval,
   and must be isolated and tested. The only existing exception is the
   libFuzzer C entry point in `Fuzz/` (outside the package), which copies the
   input into an array straight away.
@@ -206,7 +206,7 @@ never describe it as just MIT. `RARCore` and `CBZWriter` alone are MIT.
   packed data), so links never take part in the solid stream and are
   simply skipped.
 - Performance: CRC32 runs at about 400 MB/s (table-driven, byte at a
-  time); a faster CRC would help every path. Release build decodes about 120-160 MB/s on the Mac mini
+  time); a faster CRC would help every path. Release build decodes about 120-160 MB/s on an Apple silicon Mac
   for RAR4 LZ, 80-270 MB/s for RAR5 (filtered data is the slow end; unrar
   is about 3x faster there); PPMd 25-50 MB/s on text, 5 MB/s when
   memory-starved or on random data (about 2x slower than the C unrar).

@@ -3,7 +3,7 @@
 Status: approved 2026-10-13. Section 1 done; section 3 reduced (see there);
 sections 1-3 done.
 
-Issue #3 P0 step 1 (the `UInt8` literal that broke CI) is done in 539cdf2.
+Issue #3 P0 step 1 (the `UInt8` literal that broke CI) is done in aadb2de.
 This phase covers the rest of P0, which also is roadmap phase 7:
 
 1. a toolchain matrix plus an iOS build check, and a Swift 6 strict
@@ -87,7 +87,7 @@ why.
 
 ## Order of work
 
-1. Matrix, iOS build, strict concurrency (done, 2d5d10d).
+1. Matrix, iOS build, strict concurrency (done, 13d2a42).
 2. Skip-or-fail helper, proved against the hidden oracle locally; then the
    CI leg.
 3. Differential check by hand.
