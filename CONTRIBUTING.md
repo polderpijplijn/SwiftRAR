@@ -1,7 +1,12 @@
 # Contributing to SwiftRAR
 
-Thanks for helping. Please open an issue before a larger change, so the
-approach can be agreed first.
+SwiftRAR is developed in the open, but it does not take outside
+contributions: pull requests are turned off, and only collaborators can
+open issues. You are welcome to fork it under its licenses (see the
+README). Report a vulnerability privately as described in
+[SECURITY.md](SECURITY.md).
+
+The rest of this file is for the maintainers.
 
 ## Build and test
 
@@ -39,4 +44,4 @@ CI also checks Swift 6 strict concurrency, the iOS build, both samples in
 
 ## Security issues
 
-Do not open a public issue for a vulnerability; see [SECURITY.md](SECURITY.md).
+Vulnerabilities are reported privately; see [SECURITY.md](SECURITY.md).
