@@ -6,9 +6,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Everything runs on the Mac mini's self-hosted runner: no GitHub-hosted
-# minutes. That runner takes one job at a time; a newer push to the same ref
-# cancels the run still waiting or running, so the mini only does current work.
+# GitHub-hosted runners only. A self-hosted runner must never run pull
+# requests from forks: every job here gets a fresh VM, and fork PRs get a
+# read-only token and no secrets. A newer push to the same ref cancels the
+# run still waiting or running.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -18,20 +22,21 @@ jobs:
     name: test (${{ matrix.name }})
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
-          # Oldest supported: swift-tools-version 6.2 (Xcode 26). Tested with
-          # Xcode 26.4.1 (Swift 6.3.1); the 6.2 -> 6.3 gap is accepted.
+          # Oldest supported: swift-tools-version 6.2, so Xcode 26.0.1
+          # (Swift 6.2) exactly. Pinned: the image's default Xcode moves.
           - name: oldest
-            xcode: /Applications/Xcode.app
+            runner: macos-26
+            xcode: /Applications/Xcode_26.0.1.app
             experimental: false
           # The next toolchain, to see breakage early. May fail without
-          # turning CI red.
+          # turning CI red. The xcode-27 image is a preview.
           - name: next
-            xcode: /Applications/Xcode-27.1-beta.app
+            runner: xcode-27
+            xcode: /Applications/Xcode.app
             experimental: true
-    runs-on: [self-hosted, swiftrar]
+    runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental }}
     env:
       DEVELOPER_DIR: ${{ matrix.xcode }}/Contents/Developer
@@ -43,14 +48,20 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Cache unrar oracle
+        # The script's hash is in the key, so a new UnRAR version builds
+        # afresh. The script reuses a cached binary.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/swiftrar-unrar
+          key: unrar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
+
       - name: Build unrar oracle
         # Builds RARLAB's UnRAR source as a test oracle only. CI requires it:
         # SWIFTRAR_REQUIRE_ORACLE makes missing tools or fixtures fail the
         # tests instead of skipping them, so green means the comparisons ran.
-        # It is kept outside the checkout, which is cleaned per job; the
-        # script's hash is in the path, so a new UnRAR version builds afresh.
         env:
-          SWIFTRAR_ORACLE_DIR: ${{ runner.tool_cache }}/swiftrar-unrar-${{ hashFiles('Tools/oracle/build-unrar.sh') }}
+          SWIFTRAR_ORACLE_DIR: ${{ runner.temp }}/swiftrar-unrar
         run: |
           unrar="$(Tools/oracle/build-unrar.sh --build)"
           echo "SWIFTRAR_UNRAR=$unrar" >> "$GITHUB_ENV"
@@ -86,9 +97,9 @@ jobs:
   ios-build:
     # Compiles for the iOS device SDK; no simulator is booted.
     needs: test
-    runs-on: [self-hosted, swiftrar]
+    runs-on: macos-26
     env:
-      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
 

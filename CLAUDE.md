@@ -63,15 +63,15 @@ C/C++, no libarchive. Everything in this repo is written in English.
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
   After the review hardening (issue #2): 108K runs in 5 min, coverage
   2300, no findings.
-- CI runs on a self-hosted macOS runner (label `swiftrar`, issue #4), one
-  job at a time. It moves to GitHub-hosted runners once the repo is public
-  (#6): a self-hosted runner must never run pull requests from forks.
-  Legs: `oldest` = `/Applications/Xcode.app` (26.4.1, for the promised
-  `swift-tools-version:6.2`) and `next` = the newest Xcode beta
-  (`continue-on-error`); update the beta path when it changes. Tests run in
-  release (`swift test -c release -Xswiftc -enable-testing`, about 50 s
-  including the build). The oracle lives in the runner's tool cache via
-  `SWIFTRAR_ORACLE_DIR`, since checkout cleans the workspace.
+- CI runs on GitHub-hosted runners only (#6), free for a public repo.
+  Never put a self-hosted runner back while `pull_request:` is on: a fork
+  PR would run its own code on that machine. Legs: `oldest` = `macos-26`
+  with `Xcode_26.0.1` (Swift 6.2, the promised `swift-tools-version:6.2`)
+  and `next` = the `xcode-27` preview image (`continue-on-error`).
+  `ios-build` uses `Xcode_26.0.1` too. When the image drops a pinned Xcode,
+  move to the oldest 26.x it still has. Tests run in release
+  (`swift test -c release -Xswiftc -enable-testing`). The oracle binary
+  is kept with `actions/cache`, keyed on the hash of `build-unrar.sh`.
 - Every CI leg sets `SWIFTRAR_REQUIRE_ORACLE=1`, which turns every
   skip for a missing tool or fixture (`Tools.unavailable`) into a failure.
   Set it locally to check that nothing was skipped.
