@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Destination for the ZIP writer: append, plus patching earlier bytes
 /// (local headers get their CRC and sizes once an entry is complete).
@@ -17,19 +22,17 @@ public final class FileOutput: ZIPOutput {
     public private(set) var position: UInt64 = 0
     private var isClosed = false
 
-    /// Creates the file; fails if it already exists.
+    /// Atomically creates and opens the file; fails if the path already
+    /// exists, including a symlink. The parent directory must be trusted.
     public init(url: URL) throws {
-        guard !FileManager.default.fileExists(atPath: url.path) else {
-            throw CBZWriterError.io("\(url.lastPathComponent) already exists")
+        // Keep the descriptor returned by exclusive creation: reopening
+        // the path would allow another process to replace it with a link.
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(0o666))
+        guard descriptor >= 0 else {
+            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            throw CBZWriterError.io("cannot create \(url.lastPathComponent): \(error.localizedDescription)")
         }
-        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
-            throw CBZWriterError.io("cannot create \(url.lastPathComponent)")
-        }
-        do {
-            handle = try FileHandle(forWritingTo: url)
-        } catch {
-            throw CBZWriterError.io(error.localizedDescription)
-        }
+        handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 
     deinit {

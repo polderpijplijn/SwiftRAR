@@ -53,9 +53,8 @@ enum RAR5Parser {
 
         while position < source.size {
             if Task.isCancelled { throw RARError.cancelled }
-            let header = try readHeader(source, at: position)
+            let header = try readHeader(source, at: position, remainingBudget: limits.maxHeaderBytes - headerBytes)
             headerBytes += UInt64(header.bytes.count)
-            if headerBytes > limits.maxHeaderBytes { throw RARError.limitExceeded(.headerBytes) }
             var reader = ByteReader(header.bytes, position: header.bodyStart,
                                     shortReadError: .corruptHeader("field beyond header size"))
 
@@ -116,7 +115,9 @@ enum RAR5Parser {
 
     /// Reads one complete header and verifies its CRC32.
     /// `bodyStart` is the offset of the type field inside `bytes`.
-    static func readHeader(_ source: ByteSource, at position: UInt64) throws -> (bytes: [UInt8], bodyStart: Int) {
+    static func readHeader(
+        _ source: ByteSource, at position: UInt64, remainingBudget: UInt64
+    ) throws -> (bytes: [UInt8], bodyStart: Int) {
         let available = source.size - position
         // Read enough for a full 10-byte vint so an over-long size is reported
         // as corrupt rather than truncated.
@@ -134,6 +135,9 @@ enum RAR5Parser {
         }
 
         let total = 4 + sizeBytes + Int(headerSize)
+        // Only the fixed-size prefix above is needed to reject a header
+        // that exceeds the archive's remaining metadata budget.
+        guard UInt64(total) <= remainingBudget else { throw RARError.limitExceeded(.headerBytes) }
         let bytes = try source.read(at: position, count: total)
         if CRC32.checksum(bytes[4...]) != storedCRC { throw RARError.badHeaderCRC }
         return (bytes, 4 + sizeBytes)

@@ -7,6 +7,16 @@ a minor release may change the API.
 
 ## Unreleased
 
+### Fixed
+
+- Create `FileOutput` files atomically and exclusively, rejecting existing
+  paths (including dangling symlinks) and avoiding a symlink race when
+  opening the output (#5).
+- Check the remaining RAR5 header budget before reading or allocating a
+  complete header (#5).
+- Reject entries from another `RARReader` even when their metadata or
+  archive contents are identical; entry equality includes the reader (#5).
+
 ### Changed
 
 - The minimum toolchain is now Swift 6.2 (Xcode 26), up from Swift 5.9

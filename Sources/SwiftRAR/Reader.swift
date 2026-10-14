@@ -26,8 +26,11 @@ import RARDecode
 /// parallel. Cancelling the surrounding `Task` stops the work at the next
 /// output chunk or input read with `RARError.cancelled`.
 public final class RARReader {
-    /// A file in the archive.
+    /// A file in the archive. Equality includes the originating reader:
+    /// entries from separately opened readers are distinct.
     public struct Entry: Equatable, Sendable {
+        /// Included in synthesized equality, without retaining the reader.
+        fileprivate let readerID: UUID
         /// Position in `entries`.
         public let index: Int
         /// Sanitised and unique within the archive. A key, not a safe path.
@@ -75,12 +78,13 @@ public final class RARReader {
     public init(source: ByteSource, limits: Limits) throws {
         let archive = try RARArchive(source: source, limits: limits)
         let plan = try planExtraction(archive, limits: limits)
+        let readerID = UUID()
 
         var entries: [Entry] = []
         var positions: [Int?] = []
         var stream: [RAREntry] = []
         for (index, (entry, name)) in plan.enumerated() {
-            entries.append(Entry(index: index, name: name, rawName: entry.rawName, size: entry.unpackedSize,
+            entries.append(Entry(readerID: readerID, index: index, name: name, rawName: entry.rawName, size: entry.unpackedSize,
                                  modified: entry.modified, isCompressed: !entry.isStored))
             if entry.isStored {
                 positions.append(nil)
