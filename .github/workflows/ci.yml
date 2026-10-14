@@ -97,9 +97,11 @@ jobs:
   ios-build:
     # Compiles for the iOS device SDK; no simulator is booted.
     needs: test
+    # The image's default Xcode: only that one has the iOS platform
+    # installed. The Swift 6.2 minimum is covered by test (oldest).
     runs-on: macos-26
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
 

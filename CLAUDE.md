@@ -68,7 +68,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   PR would run its own code on that machine. Legs: `oldest` = `macos-26`
   with `Xcode_26.0.1` (Swift 6.2, the promised `swift-tools-version:6.2`)
   and `next` = the `xcode-27` preview image (`continue-on-error`).
-  `ios-build` uses `Xcode_26.0.1` too. When the image drops a pinned Xcode,
+  `ios-build` uses the image's default Xcode, the only one with the iOS
+  platform installed. When the image drops a pinned Xcode,
   move to the oldest 26.x it still has. Tests run in release
   (`swift test -c release -Xswiftc -enable-testing`). The oracle binary
   is kept with `actions/cache`, keyed on the hash of `build-unrar.sh`.
