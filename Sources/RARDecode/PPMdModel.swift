@@ -681,7 +681,10 @@ struct PPMdModel {
                 upFreq = 1 + (5 &* cf > s0 ? 1 : 0)
             } else {
                 guard s0 != 0 else { throw RARError.corruptData("PPMd successor frequency") }
-                upFreq = 1 + Int((2 &* cf &+ 3 &* s0 &- 1) / (2 &* s0))
+                // Split up: Swift 6.2 cannot type-check it as one expression.
+                let numerator: UInt32 = 2 &* cf &+ 3 &* s0 &- 1
+                let denominator: UInt32 = 2 &* s0
+                upFreq = 1 + Int(numerator / denominator)
             }
         } else {
             upFreq = try freq(oneState(context))
