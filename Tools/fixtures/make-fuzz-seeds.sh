@@ -15,9 +15,11 @@
 #                          the 256 KB window
 #   seed-rar5-wrap-flt     E8 with a patched 264 KB dictionary, so filter
 #                          blocks span the window end (see below)
-# rar never emits the RAR5 ARM or the RAR4 Itanium filter (see
-# make-fixtures.sh), so those have no seed. The seed- prefix keeps them
-# from overwriting the fixtures of the same name in the corpus.
+#   seed-rar4-flt-itanium  built by hand, as rar never emits Itanium (see
+#                          below); rar 6.24 checks it
+# rar never emits the RAR5 ARM filter either (see make-fixtures.sh), so it
+# has no seed. The seed- prefix keeps them from overwriting the fixtures of
+# the same name in the corpus.
 #
 # Uses the same pinned rar binaries as make-fixtures.sh.
 set -eu
@@ -180,6 +182,137 @@ while i < len(b):
 open(path, "wb").write(b)
 PY
 "$RAR5" t -idq "$out/seed-rar5-wrap-flt.rar"
+
+# rar never emits the Itanium filter, so this seed is written by hand: one
+# LZ block of literals with flat tables, after a filter record for the
+# whole entry. UnRAR recognises a filter program only by its length, CRC32
+# and a first byte that is the XOR of the rest; the real Itanium program is
+# not public, so the seed carries a stand-in that passes those checks.
+# Its expected output comes from a Python copy of the filter, and rar 6.24
+# must extract exactly that (a program that is not recognised fails there).
+python3 - "$out/seed-rar4-flt-itanium.rar" "$work/itanium.expected" <<'PY'
+import random, struct, sys, zlib
+r = random.Random(10)
+
+# The program: fix the XOR byte, then solve six free bytes for the CRC,
+# which is affine in their bits (Gaussian elimination over GF(2)).
+LENGTH, CRC, FREE = 120, 0x3769893F, range(1, 7)
+def program(bits):
+    code = bytearray(b"SwiftRAR stand-in for the RarVM Itanium filter program".ljust(LENGTH, b"."))
+    for n, i in enumerate(FREE):
+        code[i] = bits >> 8 * n & 0xFF
+    code[0] = 0
+    for byte in code[1:]:
+        code[0] ^= byte
+    return bytes(code)
+base = zlib.crc32(program(0))
+rows = [(zlib.crc32(program(1 << k)) ^ base, 1 << k) for k in range(8 * len(FREE))]
+target, solution = CRC ^ base, 0
+for bit in range(32):
+    pivots = [row for row in rows if row[0] >> bit & 1]
+    if not pivots:
+        continue
+    pivot = pivots[0]
+    rows = [(a ^ pivot[0], b ^ pivot[1]) if a >> bit & 1 else (a, b) for a, b in rows if (a, b) != pivot]
+    if target >> bit & 1:
+        target ^= pivot[0]
+        solution ^= pivot[1]
+code = program(solution)
+assert zlib.crc32(code) == CRC
+
+# 32 KB of 16-byte Itanium-like bundles: about a third with a template the
+# filter patches (0x10-0x1F with a non-zero slot mask) and opcode 5 in
+# every slot, so their branch targets are rewritten.
+def bits(data, at, count):
+    return int.from_bytes(data[at // 8:at // 8 + 4], "little") >> (at & 7) & (1 << count) - 1
+def set_bits(data, at, count, value):
+    field = int.from_bytes(data[at // 8:at // 8 + 4], "little")
+    mask = (1 << count) - 1 << (at & 7)
+    data[at // 8:at // 8 + 4] = (field & ~mask | value << (at & 7) & mask).to_bytes(4, "little")
+size = 32_768
+packed = bytearray()
+while len(packed) < size:
+    bundle = bytearray(r.getrandbits(8) for _ in range(16)) + bytearray(4)
+    if r.random() < 0.35:
+        bundle[0] = bundle[0] & 0xE0 | r.choice((0x10, 0x12, 0x16, 0x18, 0x1C))
+        for slot in range(3):
+            set_bits(bundle, slot * 41 + 5 + 37, 4, 5)
+    packed += bundle[:16]
+# ExecuteStandardFilter for Itanium, the block starting at file offset 0.
+masks = [4, 4, 6, 6, 0, 0, 7, 7, 4, 4, 0, 0, 4, 4, 0, 0]
+data = bytearray(packed) + bytearray(4)
+position = 0
+while position < size - 21:
+    template = (data[position] & 0x1F) - 0x10
+    if template >= 0:
+        for slot in range(3):
+            start = 8 * position + slot * 41 + 5
+            if masks[template] >> slot & 1 and bits(data, start + 37, 4) == 5:
+                set_bits(data, start + 13, 20, bits(data, start + 13, 20) - position // 16 & 0xFFFFF)
+    position += 16
+unpacked = bytes(data[:size])
+assert unpacked != packed
+
+# The LZ stream, MSB first: a block with fresh tables (literals 0-253 get
+# 8 bits, 254-257 get 9, nothing else, so no matches), symbol 257 with
+# the filter record, the literals, then symbol 256 and "end of file".
+out = []
+def put(stream, value, count):
+    stream.extend(value >> i & 1 for i in reversed(range(count)))
+def pack(stream):
+    stream += [0] * (-len(stream) % 8)
+    return bytes(int("".join(map(str, stream[i:i + 8])), 2) for i in range(0, len(stream), 8))
+def canonical(lengths):
+    codes, code = {}, 0
+    for length in range(1, 16):
+        for symbol, l in enumerate(lengths):
+            if l == length:
+                codes[symbol] = (code, length)
+                code += 1
+        code <<= 1
+    return codes
+put(out, 0, 2)
+pre_lengths = [0] * 20
+for symbol, length in {8: 2, 9: 2, 19: 2, 18: 3, 0: 3}.items():
+    pre_lengths[symbol] = length
+for length in pre_lengths:
+    put(out, length, 4)
+pre = canonical(pre_lengths)
+lengths = [8] * 254 + [9] * 4
+for length in lengths:
+    put(out, *pre[length])
+put(out, *pre[19]); put(out, 127, 7)   # 138 of the 41 + 60 + 17 + 28 zeros
+put(out, *pre[18]); put(out, 5, 3)     # the other 8
+lit = canonical(lengths)
+# Filter record (flag 0x20: block length given; new filter 0): block start
+# 0, block length, program size, program, each a RarVM ReadData field.
+record = []
+put(record, 0, 6)
+put(record, 2, 2); put(record, size, 16)
+put(record, 1, 2); put(record, LENGTH, 8)
+for byte in code:
+    put(record, byte, 8)
+record = pack(record)
+put(out, *lit[257]); put(out, 0x20 | 6, 8); put(out, len(record) - 7, 8)
+for byte in record:
+    put(out, byte, 8)
+for byte in packed:
+    put(out, *lit[byte])
+put(out, *lit[256]); put(out, 0, 2)
+stream = pack(out)
+
+# RAR 4 archive: marker, main header, file header, data, end header.
+def block(kind, flags, body):
+    head = struct.pack("<BHH", kind, flags, 7 + len(body)) + body
+    return struct.pack("<H", zlib.crc32(head) & 0xFFFF) + head
+name = b"itanium.bin"
+file_head = struct.pack("<IIBIIBBHI", len(stream), size, 3, zlib.crc32(unpacked),
+                        0x5D50_0000, 29, 0x33, len(name), 0o100644) + name
+open(sys.argv[1], "wb").write(b"Rar!\x1a\x07\x00" + block(0x73, 0, bytes(6))
+    + block(0x74, 0x8000, file_head) + stream + block(0x7B, 0x4000, b""))
+open(sys.argv[2], "wb").write(unpacked)
+PY
+"$RAR4" p -inul "$out/seed-rar4-flt-itanium.rar" | cmp - "$work/itanium.expected"
 
 # Every seed must fit the fuzzer's -max_len, or it is truncated again.
 for f in "$out"/*.rar; do

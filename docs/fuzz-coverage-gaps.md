@@ -51,10 +51,17 @@ Replaying the corpus takes about eight minutes in debug (four before
    86.6 % → 88.7 %. Still unreached: the stored branch (lines 90, 122, same
    cause as the `Convert.swift` side finding below), `init(url:)` and the
    foreign-entry guard (119). Replay now takes about eight minutes.
-3. **RarVM Itanium filter never runs** (`RarVMFilters.swift` 137–157 plus
-   `itaniumBits` / `setItaniumBits`). Already known (CLAUDE.md): RAR 6.24
-   never emits Itanium, so the tests use a hand-built bundle. A seed must
-   be hand-built the same way.
+3. **Done (16-10-2026): RarVM Itanium filter.** RAR 6.24 never emits
+   Itanium, and the real VM program is not public: UnRAR only knows its
+   length and CRC. `make-fuzz-seeds.sh` therefore writes
+   `seed-rar4-flt-itanium` itself: a stand-in program with that length,
+   CRC and XOR byte, and one LZ block of 32 KB literals (flat tables, no
+   matches) whose bundles carry patchable templates with opcode 5. rar
+   6.24 must extract exactly the output of the script's Python copy of
+   the filter; with a wrong CRC it fails. SwiftRAR extracts it
+   identically. Replaying `Fuzz/seeds`: `RarVMFilters.swift` 137–157 and
+   both bit helpers go from 0 to 2.25 k patched slots, the file from
+   84.3 % to 98.1 % of lines.
 4. **PPMd under memory pressure.** `restartAfterOverflow`
    (`PPMdModel.swift` 811) and the heap split at `PPMdHeap.swift` 273–275
    never run: the model never fills up. Seed: PPMd with the smallest
@@ -80,7 +87,7 @@ Replaying the corpus takes about eight minutes in debug (four before
 
 ## Next step
 
-Seeds for gaps 3, 4 and 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
+Seeds for gaps 4 and 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
 prefixed `seed-`), then measure again
 and run the fuzzer on the new corpus. Plan first: this touches more than
 two files.
