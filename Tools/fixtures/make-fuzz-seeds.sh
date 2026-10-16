@@ -6,12 +6,13 @@
 # was never reached and the RarVM filters only recognised. These seeds use the
 # same data shapes as make-fixtures.sh, cut down so each archive stays below
 # 64 KB with its filter intact:
-#   rar<4|5>-flt-<filter>  one filter forced per archive
-#   rar4-mct-heap          PPMd with 1 MB of model memory over high-entropy
+#   seed-rar<4|5>-flt-<filter>  one filter forced per archive
+#   seed-rar4-mct-heap     PPMd with 1 MB of model memory over high-entropy
 #                          syllables, so the model fills up and PPMdHeap
 #                          has to glue free blocks
 # rar never emits the RAR5 ARM or the RAR4 Itanium filter (see
-# make-fixtures.sh), so those have no seed.
+# make-fixtures.sh), so those have no seed. The seed- prefix keeps them
+# from overwriting the fixtures of the same name in the corpus.
 #
 # Uses the same pinned rar binaries as make-fixtures.sh.
 set -eu
@@ -92,15 +93,15 @@ with open(os.path.join(root, "ppm", "book", "ppm.txt"), "wb") as f:
     f.write(bytes(text[:80_000]))
 PY
 
-(cd "$work/e8" && "$RAR4" a -r -idq -ma4 -m3 -mce+ "$out/rar4-flt-e8.rar" book)
-(cd "$work/audio" && "$RAR4" a -r -idq -ma4 -m3 -mc4a+ "$out/rar4-flt-audio.rar" book)
-(cd "$work/delta" && "$RAR4" a -r -idq -ma4 -m3 -mc4d+ "$out/rar4-flt-delta.rar" book)
-(cd "$work/rgb" && "$RAR4" a -r -idq -ma4 -m3 -mcc+ "$out/rar4-flt-rgb.rar" book)
-(cd "$work/ppm" && "$RAR4" a -r -idq -ma4 -m3 -mc63:1t+ "$out/rar4-mct-heap.rar" book)
-(cd "$work/e8" && "$RAR5" a -r -idq -ma5 -m3 -mce+ "$out/rar5-flt-e8.rar" book)
-(cd "$work/audio" && "$RAR5" a -r -idq -ma5 -m3 -mca+ "$out/rar5-flt-audio.rar" book)
-(cd "$work/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/rar5-flt-delta.rar" book)
-(cd "$work/rgb" && "$RAR5" a -r -idq -ma5 -m3 -mcc+ "$out/rar5-flt-rgb.rar" book)
+(cd "$work/e8" && "$RAR4" a -r -idq -ma4 -m3 -mce+ "$out/seed-rar4-flt-e8.rar" book)
+(cd "$work/audio" && "$RAR4" a -r -idq -ma4 -m3 -mc4a+ "$out/seed-rar4-flt-audio.rar" book)
+(cd "$work/delta" && "$RAR4" a -r -idq -ma4 -m3 -mc4d+ "$out/seed-rar4-flt-delta.rar" book)
+(cd "$work/rgb" && "$RAR4" a -r -idq -ma4 -m3 -mcc+ "$out/seed-rar4-flt-rgb.rar" book)
+(cd "$work/ppm" && "$RAR4" a -r -idq -ma4 -m3 -mc63:1t+ "$out/seed-rar4-mct-heap.rar" book)
+(cd "$work/e8" && "$RAR5" a -r -idq -ma5 -m3 -mce+ "$out/seed-rar5-flt-e8.rar" book)
+(cd "$work/audio" && "$RAR5" a -r -idq -ma5 -m3 -mca+ "$out/seed-rar5-flt-audio.rar" book)
+(cd "$work/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/seed-rar5-flt-delta.rar" book)
+(cd "$work/rgb" && "$RAR5" a -r -idq -ma5 -m3 -mcc+ "$out/seed-rar5-flt-rgb.rar" book)
 
 # Every seed must fit the fuzzer's -max_len, or it is truncated again.
 for f in "$out"/*.rar; do
