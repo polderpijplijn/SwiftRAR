@@ -7,6 +7,12 @@ a minor release may change the API.
 
 ## Unreleased
 
+### Added
+
+- `Limits.constrained`: a preset for memory-constrained apps, such as on an
+  older iPhone. 64 MiB dictionary, PPMd memory and entry size and 8 MiB of
+  headers, about 200 MiB per call instead of about 784 MiB (#7).
+
 ### Fixed
 
 - Create `FileOutput` files atomically and exclusively, rejecting existing

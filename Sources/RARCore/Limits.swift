@@ -71,4 +71,19 @@ public struct Limits: Equatable, Sendable {
         maxPPMdMemory: 256 << 20,          // 256 MiB, the most a PPMd header can ask for
         maxHeaderBytes: 16 << 20           // 16 MiB of headers: far beyond 10,000 pages
     )
+
+    /// For apps where memory is tight, such as on an older iPhone: about
+    /// 200 MiB per call at most, against about 784 MiB with `default`.
+    ///
+    /// Same as `default` except for the four bounds that size buffers. RAR4
+    /// uses at most a 4 MiB dictionary and WinRAR 5–7 32 MiB by default;
+    /// PPMd is rare in image archives. Import one archive at a time.
+    public static let constrained: Limits = {
+        var limits = Limits.default
+        limits.maxEntrySize = 64 << 20         // only `RARReader.data(for:)` holds an entry in memory
+        limits.maxDictionarySize = 64 << 20
+        limits.maxPPMdMemory = 64 << 20
+        limits.maxHeaderBytes = 8 << 20        // still ample for 10,000 entries with long names
+        return limits
+    }()
 }

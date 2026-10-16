@@ -81,9 +81,14 @@ let reader = try RARReader(source: DataSource(downloadedData), limits: .default)
 ## Limits
 
 ``Limits`` is required on every call. ``Limits/default`` suits comic books
-on an iPhone: up to 10,000 entries, 256 MiB per entry, 4 GB in total, a
-compression ratio of 1000:1, a 256 MiB dictionary and 256 MiB of PPMd
-memory. Change single properties for other workloads:
+on a device with memory to spare: up to 10,000 entries, 256 MiB per entry,
+4 GB in total, a compression ratio of 1000:1, a 256 MiB dictionary and
+256 MiB of PPMd memory. ``Limits/constrained`` is for apps where memory is
+tight, such as on an older iPhone: 64 MiB per entry, a 64 MiB dictionary,
+64 MiB of PPMd memory and 8 MiB of headers, the rest as in the default.
+RAR4 uses at most a 4 MiB dictionary and WinRAR 5–7 32 MiB by default, so
+it still opens almost every comic. Change single properties for other
+workloads:
 
 ```swift
 var limits = Limits.default
@@ -122,7 +127,8 @@ Per open reader or running conversion, at most about:
 - with ``RARReader/data(for:)``, the entry itself: at most
   ``Limits/maxEntrySize``.
 
-A typical comic needs a few tens of MiB. The limits apply per call, not per
-process: N imports at the same time can use N times the budget. On an
-iPhone, import one archive at a time, or tighten the limits for parallel
-imports.
+That is at most about 784 MiB with ``Limits/default`` and about 200 MiB
+with ``Limits/constrained``; a typical comic needs a few tens of MiB. The
+limits apply per call, not per process: N imports at the same time can use
+N times the budget. On an iPhone, use ``Limits/constrained`` and import one
+archive at a time.

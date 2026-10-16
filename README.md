@@ -127,29 +127,35 @@ testing, not a proof.
 ## Limits and memory
 
 `Limits` is required on every call. `Limits.default` suits comic books on
-an iPhone:
+a device with memory to spare; `Limits.constrained` caps the buffers for
+apps where memory is tight, such as on an older iPhone:
 
-| Bound | Default |
-|-------|---------|
-| `maxEntries` | 10,000 |
-| `maxEntrySize` | 256 MiB |
-| `maxTotalSize` | 4,000,000,000 bytes (under the ZIP64 limit) |
-| `maxCompressionRatio` | 1000:1 per entry |
-| `maxNameLength` | 1,024 UTF-8 bytes |
-| `maxDictionarySize` | 256 MiB |
-| `maxPPMdMemory` | 256 MiB |
-| `maxHeaderBytes` | 16 MiB |
+| Bound | `default` | `constrained` |
+|-------|-----------|---------------|
+| `maxEntries` | 10,000 | 10,000 |
+| `maxEntrySize` | 256 MiB | 64 MiB |
+| `maxTotalSize` | 4,000,000,000 bytes (under the ZIP64 limit) | same |
+| `maxCompressionRatio` | 1000:1 per entry | 1000:1 |
+| `maxNameLength` | 1,024 UTF-8 bytes | 1,024 |
+| `maxDictionarySize` | 256 MiB | 64 MiB |
+| `maxPPMdMemory` | 256 MiB | 64 MiB |
+| `maxHeaderBytes` | 16 MiB | 8 MiB |
+
+RAR4 uses at most a 4 MiB dictionary and WinRAR 5–7 32 MiB by default, and
+PPMd is rare in image archives, so `constrained` still opens almost every
+comic.
 
 Memory per open reader or running conversion is at most about: the LZ
 window (the header's dictionary size, but never more than the data it can
 hold, and at most `maxDictionarySize`), plus the PPMd model of a RAR4 text
 block (at most `maxPPMdMemory`), plus the headers (at most
 `maxHeaderBytes`), plus, with `RARReader.data(for:)`, the entry itself (at
-most `maxEntrySize`). A typical comic needs a few tens of MiB.
+most `maxEntrySize`). That is at most about 784 MiB with `default` and
+about 200 MiB with `constrained`; a typical comic needs a few tens of MiB.
 
 These bounds apply **per call, not per process**: N imports at the same
-time can use N times the budget. On an iPhone, import one archive at a
-time, or tighten the limits for parallel imports. Solid RAR5 archives with
+time can use N times the budget. On an iPhone, use `.constrained` and
+import one archive at a time. Solid RAR5 archives with
 near-identical files can exceed the 1000:1 ratio; loosen
 `maxCompressionRatio` if your content needs it.
 

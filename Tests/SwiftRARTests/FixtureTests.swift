@@ -56,6 +56,20 @@ final class FixtureTests: XCTestCase {
         }
     }
 
+    /// `Limits.constrained` is meant for real comics, so every supported
+    /// fixture must still convert with it.
+    func testSupportedFixturesConvertWithConstrainedLimits() throws {
+        let directory = try makeTemporaryDirectory(self)
+        for url in try fixtures().filter(isSupported) {
+            var limits = Limits.constrained
+            if let override = Self.limitOverrides[url.deletingPathExtension().lastPathComponent] {
+                limits.maxCompressionRatio = override.maxCompressionRatio
+            }
+            let output = directory.appendingPathComponent(url.lastPathComponent + ".cbz")
+            XCTAssertNoThrow(try convertToCBZ(from: url, to: output, limits: limits), url.lastPathComponent)
+        }
+    }
+
     func testOtherFixturesAreUnsupported() throws {
         let compressed = try fixtures().filter { !isSupported($0) }
         let directory = try makeTemporaryDirectory(self)

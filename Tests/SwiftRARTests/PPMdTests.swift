@@ -104,6 +104,18 @@ final class PPMdTests: XCTestCase {
         try RARDecoder.decode(entry, from: source, limits: limits) { _ in }
     }
 
+    /// `Limits.constrained` allows 64 MiB of model memory, not 65.
+    func testConstrainedMemoryLimit() {
+        // Reset, order 4, 65 MiB.
+        XCTAssertThrowsError(try decodeHandBuilt([0xA3, 0x40, 0, 0, 0, 0, 0, 0], limits: .constrained)) {
+            XCTAssertEqual($0 as? RARError, .limitExceeded(.ppmdMemory))
+        }
+        // 64 MiB passes the limit; the made-up data then fails elsewhere.
+        XCTAssertThrowsError(try decodeHandBuilt([0xA3, 0x3F, 0, 0, 0, 0, 0, 0], limits: .constrained)) {
+            XCTAssertNotEqual($0 as? RARError, .limitExceeded(.ppmdMemory))
+        }
+    }
+
     func testHeaderAskingForTooMuchMemoryThrowsBeforeAllocating() {
         var limits = Limits.default
         limits.maxPPMdMemory = 16 << 20

@@ -73,6 +73,20 @@ final class Unpack50Tests: XCTestCase {
         }
     }
 
+    /// `Limits.constrained` allows a 64 MiB dictionary, not 128 MiB.
+    func testConstrainedDictionaryLimit() throws {
+        func archive(dictionaryBits: UInt64) -> [UInt8] {
+            RAR5Builder.build([TestFile(name: "a", contents: [1], rar5Compression: 3 << 7 | dictionaryBits << 10)])
+        }
+        XCTAssertThrowsError(try fixtures.decodeAll(archive(dictionaryBits: 10), limits: .constrained)) {
+            XCTAssertEqual($0 as? RARError, .limitExceeded(.dictionarySize))
+        }
+        // 64 MiB passes the limit; the made-up data then fails elsewhere.
+        XCTAssertThrowsError(try fixtures.decodeAll(archive(dictionaryBits: 9), limits: .constrained)) {
+            XCTAssertNotEqual($0 as? RARError, .limitExceeded(.dictionarySize))
+        }
+    }
+
     /// Algorithm version 0 is RAR 5.0 with 4 dictionary bits. Version 1 is
     /// RAR 7.0 with 5 bits and a fraction, unless the compat flag says the
     /// data uses the RAR 5.0 algorithm.
