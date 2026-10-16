@@ -30,9 +30,9 @@ final class PPMdTests: XCTestCase {
 
     /// A fixture that rar packed differently would test nothing, so each one
     /// must go through the PPMd paths it is meant for. RAR 6.24 never
-    /// registers a filter inside a PPMd block (escape 3) and always starts a
-    /// solid entry with a new PPMd header, so `solidContinuations` and
-    /// escape 3 have no fixture.
+    /// registers a filter inside a PPMd block (escape 3), so escape 3 has no
+    /// fixture. A solid entry that follows PPMd always starts with a new
+    /// PPMd header, as in UnRAR (see the issue #8 test below).
     func testFixturesTakeTheirPPMdPaths() throws {
         let plain = try decodeAll(fixture("rar4-mct")).ppmdCoverage
         XCTAssertGreaterThan(plain.resets, 0)
@@ -68,6 +68,17 @@ final class PPMdTests: XCTestCase {
         XCTAssertGreaterThan(coverage.glueRuns, 0)
         XCTAssertGreaterThan(coverage.textAreaAllocations, 0)
         XCTAssertGreaterThan(coverage.rescales, 0)
+    }
+
+    /// Issue #8: entry 1 goes from LZ to PPMd through end of block "1",
+    /// which clears TablesRead3 in UnRAR, so the solid entry 2 starts with
+    /// a new PPMd header, which restarts the model. Skipping that header
+    /// decoded garbage.
+    func testSolidEntryAfterLZToPPMdReadsNewHeader() throws {
+        let url = Tools.repositoryRoot.appendingPathComponent("Fuzz/seeds/seed-rar4-mct-solid.rar")
+        let session = try decodeAll([UInt8](try Data(contentsOf: url)))
+        XCTAssertEqual(session.ppmdCoverage.resets, 2, "one PPMd header per entry")
+        XCTAssertEqual(session.ppmdCoverage.continuations, 0)
     }
 
     // MARK: - Limits and headers

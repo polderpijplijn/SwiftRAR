@@ -20,8 +20,8 @@
 #                          blocks span the window end (see below)
 #   seed-rar4-flt-itanium  built by hand, as rar never emits Itanium (see
 #                          below); rar 6.24 checks it
-#   seed-rar4-mct-solid    solid, LZ then PPMd in one entry, so the next
-#                          entry continues the open PPMd block
+#   seed-rar4-mct-solid    solid, LZ then PPMd in one entry; the next
+#                          entry starts with a PPMd header (issue #8)
 #   seed-rar5-solid-grow   solid RAR5; entry 3 patched to a larger
 #                          dictionary, which the decoder refuses
 #   seed-rar5-flt-overflow built by hand: 8200 waiting filters, so the

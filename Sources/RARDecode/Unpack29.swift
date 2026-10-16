@@ -183,11 +183,10 @@ struct Unpack29 {
 
     private mutating func run(into sink: ([UInt8]) throws -> Void) throws {
         do {
+            // A PPMd block never leaves tablesRead set (readEndOfBlock clears
+            // it before switching), so a solid entry never starts inside one.
             if input.remainingBits > 0, !tablesRead {
                 try readTables()
-            } else if blockIsPPM {
-                // A solid entry continues an open PPMd block, coder and all.
-                ppm.countSolidContinuation()
             }
             try decodeSymbols(into: sink)
         } catch RARError.truncated {
@@ -345,6 +344,10 @@ struct Unpack29 {
         // "1": new table here; "00": end of file; "01": end of file, new
         // table at the start of the next (solid) file.
         if try input.readBits(1) == 1 {
+            // TablesRead3=!NewTable, as in UnRAR: only new LZ tables set it
+            // again, so after a switch to PPMd the next solid entry starts
+            // with a PPMd header.
+            tablesRead = false
             try readTables()
             return true
         }

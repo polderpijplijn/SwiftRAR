@@ -35,8 +35,6 @@ public struct PPMdCoverage: Equatable, Sendable {
     public var glueRuns = 0
     /// Allocations taken from the end of the text area (`AllocUnitsRare`).
     public var textAreaAllocations = 0
-    /// Entries in a solid block that started inside an open PPMd block.
-    public var solidContinuations = 0
 }
 
 /// SEE context for PPM contexts with masked symbols (RARPPM_SEE2_CONTEXT).
@@ -307,10 +305,6 @@ struct PPMdModel {
 
     mutating func countEscape(_ code: Int) {
         coverage.escapes[code, default: 0] += 1
-    }
-
-    mutating func countSolidContinuation() {
-        coverage.solidContinuations += 1
     }
 
     // MARK: - Decoding

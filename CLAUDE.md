@@ -34,9 +34,10 @@ C/C++, no libarchive. Everything in this repo is written in English.
   The PPMd fixtures (`rar4-mct-*`) are described in the script's phase 4
   section; `PPMdTests.testFixturesTakeTheirPPMdPaths` asserts which PPMd
   paths (escapes, restarts, glue) each one takes. RAR 6.24 never emits
-  escape 3 (a filter inside PPMd) and starts a solid entry with a new
-  PPMd header, except after an entry that went from LZ to PPMd
-  (`seed-rar4-mct-solid`, issue #8). Keep fixture entries under the
+  escape 3 (a filter inside PPMd). A solid entry after PPMd always starts
+  with a new PPMd header: end of block "1" clears `tablesRead` like
+  UnRAR's `TablesRead3=!NewTable`, so no entry starts inside an open PPMd
+  block (`seed-rar4-mct-solid`, issue #8). Keep fixture entries under the
   1000:1 ratio limit.
   Exception: in solid RAR5 fixtures RAR 7 packs near-copies of an earlier
   file far below that (`rar5-s`, `rar5-s-link`, `rar5-s2`);

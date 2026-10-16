@@ -82,12 +82,13 @@ Replaying the corpus takes about eight minutes in debug (four before
    - PPMd solid, `Unpack29.swift` 190: 0 → 3. `seed-rar4-mct-solid`:
      60 KB of x86-like code, then 60 KB of text in one file, plus a text
      file, at `-mct` (not `-mct+`). rar packs the code with LZ and switches
-     to PPMd for the text, so the LZ tables stay read and the next entry
-     starts inside the open PPMd block. Text alone gets a new PPMd header
-     for every entry; even the full `rar4-mct-*` and `rar4-s*` fixtures
-     never reach the line. rar 6.24 and unrar extract the seed;
-     **SwiftRAR fails on the second entry with `corruptData("PPMd
-     symbol")`** (issue #8): the path had never run before.
+     to PPMd for the text. rar 6.24 and unrar extract the seed;
+     **SwiftRAR failed on the second entry with `corruptData("PPMd
+     symbol")`** (issue #8). Cause: end of block "1" did not clear
+     `tablesRead` (UnRAR: `TablesRead3=!NewTable`), so the second entry
+     skipped its new PPMd header. Fixed on 16-10-2026; the line on 190 was
+     only reachable through that bug and is gone. A solid entry after PPMd
+     always starts with a PPMd header, as UnRAR shows.
    - RAR5 solid, `Unpack50.swift` 144–147: 0 → 8 (147: 4).
      `seed-rar5-solid-grow`: four solid text files at `-md128k`; the
      header of entry 3 is patched to a 1 MB dictionary, so the guard on
