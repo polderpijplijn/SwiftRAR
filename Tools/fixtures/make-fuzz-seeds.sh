@@ -10,6 +10,9 @@
 #   seed-rar4-mct-heap     PPMd with 1 MB of model memory over high-entropy
 #                          syllables, so the model fills up and PPMdHeap
 #                          has to glue free blocks
+#   seed-rar4-mct-restart  PPMd, 1 MB, order 5 over blocks that each repeat
+#                          four times: the model runs out of memory and
+#                          restarts, and glued blocks above 128 units split
 #   seed-rar<4|5>-wrap     700 KB of near-repeats with the smallest
 #                          dictionary, so copies and writes wrap around
 #                          the 256 KB window
@@ -98,6 +101,18 @@ while len(text) < 80_000:
 os.makedirs(os.path.join(root, "ppm", "book"))
 with open(os.path.join(root, "ppm", "book", "ppm.txt"), "wb") as f:
     f.write(bytes(text[:80_000]))
+# PPMd restart: random blocks of 48 symbols, each written four times. A
+# repeat costs almost no bits but still adds contexts, so 1 MB of model
+# memory fills up within 64 KB of archive. The wide alphabet gives state
+# arrays big enough that a glue run frees more than 128 units at once.
+# (seed-rar4-mct-heap and even the full rar4-mct-mem fixture never split.)
+r = random.Random(1)
+text = bytearray()
+while len(text) < 320_000:
+    text += bytes(r.getrandbits(8) % 48 + 48 for _ in range(r.randrange(200, 2000))) * 4
+os.makedirs(os.path.join(root, "restart", "book"))
+with open(os.path.join(root, "restart", "book", "restart.txt"), "wb") as f:
+    f.write(bytes(text[:320_000]))
 # Window wrap-around: 700 KB that packs into a few KB. A 4 KB block is
 # repeated with sparse mutations, so long matches cross the window end.
 r = random.Random(8)
@@ -122,6 +137,7 @@ PY
 (cd "$work/delta" && "$RAR4" a -r -idq -ma4 -m3 -mc4d+ "$out/seed-rar4-flt-delta.rar" book)
 (cd "$work/rgb" && "$RAR4" a -r -idq -ma4 -m3 -mcc+ "$out/seed-rar4-flt-rgb.rar" book)
 (cd "$work/ppm" && "$RAR4" a -r -idq -ma4 -m3 -mc63:1t+ "$out/seed-rar4-mct-heap.rar" book)
+(cd "$work/restart" && "$RAR4" a -r -idq -ma4 -m3 -mc5:1t+ "$out/seed-rar4-mct-restart.rar" book)
 (cd "$work/e8" && "$RAR5" a -r -idq -ma5 -m3 -mce+ "$out/seed-rar5-flt-e8.rar" book)
 (cd "$work/audio" && "$RAR5" a -r -idq -ma5 -m3 -mca+ "$out/seed-rar5-flt-audio.rar" book)
 (cd "$work/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/seed-rar5-flt-delta.rar" book)

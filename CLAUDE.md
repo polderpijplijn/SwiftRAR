@@ -67,7 +67,8 @@ C/C++, no libarchive. Everything in this repo is written in English.
   findings. A coverage report showed the filter fixtures never got past
   the 64 KB cut: RAR5Filters 0%, RarVMFilters 19%, PPMdHeap 58% of lines.
   `Fuzz/seeds` (from `Tools/fixtures/make-fuzz-seeds.sh`) holds small
-  filter and PPMd-heap archives under 64 KB; alone they reach 75%, 84% and
+  filter and PPMd-heap archives under 64 KB (`seed-rar4-mct-restart` makes
+  the PPMd model restart and split glued blocks); alone they reach 75%, 84% and
   88%. rar never emits RAR5 ARM or RAR4 Itanium; ARM stays unreached,
   Itanium has the hand-written `seed-rar4-flt-itanium` (a stand-in
   program with the right length and CRC, checked against rar 6.24).

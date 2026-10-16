@@ -62,10 +62,20 @@ Replaying the corpus takes about eight minutes in debug (four before
    identically. Replaying `Fuzz/seeds`: `RarVMFilters.swift` 137–157 and
    both bit helpers go from 0 to 2.25 k patched slots, the file from
    84.3 % to 98.1 % of lines.
-4. **PPMd under memory pressure.** `restartAfterOverflow`
-   (`PPMdModel.swift` 811) and the heap split at `PPMdHeap.swift` 273–275
-   never run: the model never fills up. Seed: PPMd with the smallest
-   memory size and enough varied data.
+4. **Done (16-10-2026): PPMd under memory pressure.** 1 MB is the
+   smallest model memory the format allows, and at that size neither
+   `seed-rar4-mct-heap` nor the full 425 KB `rar4-mct-mem` fixture ever
+   splits a glued block (the fixture restarts 56 times, but no glue run
+   frees more than 128 units). `seed-rar4-mct-restart` packs 320 KB of
+   random blocks over 48 symbols, each written four times, at order 5
+   into 59 KB: a repeat costs almost no bits but still adds contexts, and
+   the wide alphabet gives state arrays large enough to glue into blocks
+   above 128 units. Decoded once it restarts once and splits 8 times; rar
+   6.24, unrar and SwiftRAR extract it identically. Replaying `Fuzz/seeds`
+   without and with it: `PPMdModel.swift` 811 goes from 0 to 2,
+   `PPMdHeap.swift` 273–275 from 0 to 16; `PPMdModel.swift` 92.3 % →
+   94.8 % of lines, `PPMdHeap.swift` 87.8 % → 91.6 %, package 83.4 % →
+   84.3 % (seeds only).
 5. **Solid continuation and mid-stream flushes.** PPMd solid
    (`Unpack29.swift` 189), RAR5 solid (`Unpack50.swift` 144–147), a solid
    stream broken by an earlier entry (`RARDecoder.swift` 130), the flush
@@ -87,7 +97,7 @@ Replaying the corpus takes about eight minutes in debug (four before
 
 ## Next step
 
-Seeds for gaps 4 and 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
+Seeds for gap 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
 prefixed `seed-`), then measure again
 and run the fuzzer on the new corpus. Plan first: this touches more than
 two files.
