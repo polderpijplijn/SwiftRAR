@@ -10,6 +10,11 @@
 #   seed-rar4-mct-heap     PPMd with 1 MB of model memory over high-entropy
 #                          syllables, so the model fills up and PPMdHeap
 #                          has to glue free blocks
+#   seed-rar<4|5>-wrap     700 KB of near-repeats with the smallest
+#                          dictionary, so copies and writes wrap around
+#                          the 256 KB window
+#   seed-rar5-wrap-flt     E8 with a patched 264 KB dictionary, so filter
+#                          blocks span the window end (see below)
 # rar never emits the RAR5 ARM or the RAR4 Itanium filter (see
 # make-fixtures.sh), so those have no seed. The seed- prefix keeps them
 # from overwriting the fixtures of the same name in the corpus.
@@ -91,6 +96,23 @@ while len(text) < 80_000:
 os.makedirs(os.path.join(root, "ppm", "book"))
 with open(os.path.join(root, "ppm", "book", "ppm.txt"), "wb") as f:
     f.write(bytes(text[:80_000]))
+# Window wrap-around: 700 KB that packs into a few KB. A 4 KB block is
+# repeated with sparse mutations, so long matches cross the window end.
+r = random.Random(8)
+def mutated(data):
+    for _ in range(len(data) // 400):
+        data[r.randrange(len(data))] = r.getrandbits(8)
+    return data
+write("wrap", mutated(bytearray(bytes(r.getrandbits(8) for _ in range(4096)) * 171)[:700_000]))
+# The same for E8: calls to a few fixed absolute targets, so the filtered
+# data repeats as well and many filter blocks span the window end.
+# Call offsets are relative to the position in the file, not in the block.
+pattern = [r.choice((0x1000, 0x8000, 0x20000)) if r.random() < 0.2 else r.choice(ops) for _ in range(1500)]
+code = bytearray()
+while len(code) < 700_000:
+    for op in pattern:
+        code += b"\xe8" + struct.pack("<i", op - len(code) - 5) if isinstance(op, int) else op
+write("wrap-e8", mutated(code[:700_000]))
 PY
 
 (cd "$work/e8" && "$RAR4" a -r -idq -ma4 -m3 -mce+ "$out/seed-rar4-flt-e8.rar" book)
@@ -102,6 +124,62 @@ PY
 (cd "$work/audio" && "$RAR5" a -r -idq -ma5 -m3 -mca+ "$out/seed-rar5-flt-audio.rar" book)
 (cd "$work/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/seed-rar5-flt-delta.rar" book)
 (cd "$work/rgb" && "$RAR5" a -r -idq -ma5 -m3 -mcc+ "$out/seed-rar5-flt-rgb.rar" book)
+# The smallest dictionaries; the decoders still allocate 256 KB windows.
+(cd "$work/wrap" && "$RAR4" a -r -idq -ma4 -m3 -md64k "$out/seed-rar4-wrap.rar" book)
+(cd "$work/wrap" && "$RAR5" a -r -idq -ma5 -m3 -md128k "$out/seed-rar5-wrap.rar" book)
+# rar never lets a filter block cross a 256 KB boundary of the file, and
+# every real window is a multiple of that, so a filter never wraps. The
+# seed is packed with a 256 KB dictionary, then its file header claims a
+# RAR7 dictionary of 256 KB + 1/32 (RAR5-compatible data): the decoder's
+# window becomes 264 KB and the filter blocks straddle its end. rar and
+# SwiftRAR still extract it unchanged. -qo- leaves out the quick-open
+# copy of the header, which would no longer match.
+(cd "$work/wrap-e8" && "$RAR5" a -r -idq -ma5 -m3 -md256k -qo- -mce+ "$out/seed-rar5-wrap-flt.rar" book)
+python3 - "$out/seed-rar5-wrap-flt.rar" <<'PY'
+import sys, zlib
+def vint(b, i):
+    value = shift = 0
+    while True:
+        c = b[i]; i += 1
+        value |= (c & 0x7F) << shift; shift += 7
+        if c < 0x80:
+            return value, i
+def encode(value):
+    out = bytearray()
+    while value >= 0x80:
+        out.append(value & 0x7F | 0x80); value >>= 7
+    return bytes(out + bytes([value]))
+path = sys.argv[1]
+b = bytearray(open(path, "rb").read())
+i = 8
+while i < len(b):
+    size, h = vint(b, i + 4)
+    end = h + size
+    kind, j = vint(b, h)
+    flags, j = vint(b, j)
+    if flags & 1:
+        _, j = vint(b, j)
+    data = 0
+    if flags & 2:
+        data, j = vint(b, j)
+    if kind == 2:
+        file_flags, j = vint(b, j)
+        _, j = vint(b, j)  # unpacked size
+        _, j = vint(b, j)  # attributes
+        j += 4 * bool(file_flags & 2) + 4 * bool(file_flags & 4)  # mtime, CRC
+        info, k = vint(b, j)
+        # Version 1, 128 KB << 1 plus 1/32, compat flag (bit 20).
+        info = info & ~0x3F & ~(0x3FF << 10) | 1 | 1 << 10 | 1 << 15 | 1 << 20
+        header = b[h:j] + encode(info) + b[k:end]
+        block = encode(len(header)) + header
+        b[i:end] = zlib.crc32(block).to_bytes(4, "little") + block
+        end = i + 4 + len(block)
+    if kind == 5:
+        break
+    i = end + data
+open(path, "wb").write(b)
+PY
+"$RAR5" t -idq "$out/seed-rar5-wrap-flt.rar"
 
 # Every seed must fit the fuzzer's -max_len, or it is truncated again.
 for f in "$out"/*.rar; do
