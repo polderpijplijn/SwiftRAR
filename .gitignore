@@ -16,6 +16,7 @@ DerivedData/
 # Fuzzer output.
 /Fuzz/.build/
 /Fuzz/corpus/
+/Fuzz/*.log
 crash-*
 leak-*
 timeout-*
