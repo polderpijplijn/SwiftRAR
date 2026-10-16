@@ -76,11 +76,45 @@ Replaying the corpus takes about eight minutes in debug (four before
    `PPMdHeap.swift` 273–275 from 0 to 16; `PPMdModel.swift` 92.3 % →
    94.8 % of lines, `PPMdHeap.swift` 87.8 % → 91.6 %, package 83.4 % →
    84.3 % (seeds only).
-5. **Solid continuation and mid-stream flushes.** PPMd solid
-   (`Unpack29.swift` 189), RAR5 solid (`Unpack50.swift` 144–147), a solid
-   stream broken by an earlier entry (`RARDecoder.swift` 130), the flush
-   paths (`Unpack29.swift` 214–217, `Unpack50.swift` 188–189) and the
-   too-many-filters drop (`Unpack50.swift` 426–428).
+5. **Done (16-10-2026): solid continuation and mid-stream flushes.**
+   Replaying `Fuzz/seeds` without and with the three new seeds (line
+   counts; `Unpack29.swift` 189 is a comment, the call is on 190):
+   - PPMd solid, `Unpack29.swift` 190: 0 → 3. `seed-rar4-mct-solid`:
+     60 KB of x86-like code, then 60 KB of text in one file, plus a text
+     file, at `-mct` (not `-mct+`). rar packs the code with LZ and switches
+     to PPMd for the text, so the LZ tables stay read and the next entry
+     starts inside the open PPMd block. Text alone gets a new PPMd header
+     for every entry; even the full `rar4-mct-*` and `rar4-s*` fixtures
+     never reach the line. rar 6.24 and unrar extract the seed;
+     **SwiftRAR fails on the second entry with `corruptData("PPMd
+     symbol")`** (issue #8): the path had never run before.
+   - RAR5 solid, `Unpack50.swift` 144–147: 0 → 8 (147: 4).
+     `seed-rar5-solid-grow`: four solid text files at `-md128k`; the
+     header of entry 3 is patched to a 1 MB dictionary, so the guard on
+     146 throws (rar 7.23: "Not enough memory"); rar tests the archive
+     before the patch.
+   - Broken solid stream, `RARDecoder.swift` 130: stays 0, unreachable
+     from the harness. Both callers stop using a session after an error:
+     `convertToCBZ` stops, and `RARReader` drops the session and restarts
+     at the restart point, where the failing entry fails again. The guard
+     only protects direct users of `RARDecoder.Session`. Entry 4 of
+     `seed-rar5-solid-grow` would reach it through a session that goes on.
+   - Flushes, `Unpack29.swift` 214–217 and `Unpack50.swift` 188–189:
+     already 4 and 8 before these seeds, from the wrap seeds of gap 1 (this
+     list was measured before them). Still 0 are two regions: `: 0` on
+     216 (a filter that blocks the write) and `return false` on 189 (more
+     written than the entry). Both need a filter block that runs past the
+     end of an entry in a solid stream, which rar does not write.
+   - Too many filters, `Unpack50.swift` 426–428: 0 → 2.
+     `seed-rar5-flt-overflow` is written by hand: one block with tables
+     for only a literal and the filter symbol, 8200 filter records for
+     4 bytes 200 bytes ahead, then 16 literals. At 8192 the write cannot
+     run any of them, so all are dropped. rar 7.23 extracts exactly the
+     16 zeros, and SwiftRAR's CRC check passes.
+
+   Lines: `RARDecoder.swift` 77.3 % → 84.6 %, `Unpack29.swift` 87.3 % →
+   87.8 %, `Unpack50.swift` 91.5 % → 93.4 %, package 84.3 % → 85.4 %
+   (seeds only).
 6. **RAR5 header branches.** Encryption flags (84, 206), Unix and
    Windows timestamps (154, 247–251).
 
@@ -97,7 +131,6 @@ Replaying the corpus takes about eight minutes in debug (four before
 
 ## Next step
 
-Seeds for gap 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
-prefixed `seed-`), then measure again
-and run the fuzzer on the new corpus. Plan first: this touches more than
-two files.
+Fix issue #8 (PPMd solid continuation) with `seed-rar4-mct-solid` as
+the regression case, then gap 6, then measure the full corpus again and
+run the fuzzer on it.

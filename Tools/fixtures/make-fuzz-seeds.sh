@@ -20,6 +20,12 @@
 #                          blocks span the window end (see below)
 #   seed-rar4-flt-itanium  built by hand, as rar never emits Itanium (see
 #                          below); rar 6.24 checks it
+#   seed-rar4-mct-solid    solid, LZ then PPMd in one entry, so the next
+#                          entry continues the open PPMd block
+#   seed-rar5-solid-grow   solid RAR5; entry 3 patched to a larger
+#                          dictionary, which the decoder refuses
+#   seed-rar5-flt-overflow built by hand: 8200 waiting filters, so the
+#                          decoder drops them (see below)
 # rar never emits the RAR5 ARM filter either (see make-fixtures.sh), so it
 # has no seed. The seed- prefix keeps them from overwriting the fixtures of
 # the same name in the corpus.
@@ -130,6 +136,30 @@ while len(code) < 700_000:
     for op in pattern:
         code += b"\xe8" + struct.pack("<i", op - len(code) - 5) if isinstance(op, int) else op
 write("wrap-e8", mutated(code[:700_000]))
+# Solid PPMd continuation: x86-like code, then text, in one file. rar
+# packs the code with LZ and switches to PPMd for the text, so the LZ
+# tables stay read and the next solid entry starts inside the open PPMd
+# block. (Text alone gets a new PPMd header for every entry.)
+r = random.Random(4)
+words = [bytes(r.getrandbits(8) % 26 + 97 for _ in range(r.randrange(2, 8))) for _ in range(400)]
+def x86(size):
+    data = bytearray()
+    while len(data) < size:
+        data += b"\xe8" + struct.pack("<i", r.randrange(-6000, 6000)) if r.random() < 0.15 else r.choice(ops)
+    return bytes(data[:size])
+def words_text(size):
+    return b" ".join(r.choice(words) for _ in range(size // 4))[:size]
+os.makedirs(os.path.join(root, "mct-solid", "book"))
+for n, data in enumerate((x86(60_000) + words_text(60_000), words_text(8_000))):
+    with open(os.path.join(root, "mct-solid", "book", f"{n}.bin"), "wb") as f:
+        f.write(data)
+# Solid RAR5: four small text files.
+r = random.Random(12)
+words = [bytes(r.getrandbits(8) % 26 + 97 for _ in range(r.randrange(2, 8))) for _ in range(300)]
+os.makedirs(os.path.join(root, "solid", "book"))
+for n in range(4):
+    with open(os.path.join(root, "solid", "book", f"{n}.txt"), "wb") as f:
+        f.write(b" ".join(r.choice(words) for _ in range(2000)))
 PY
 
 (cd "$work/e8" && "$RAR4" a -r -idq -ma4 -m3 -mce+ "$out/seed-rar4-flt-e8.rar" book)
@@ -138,6 +168,8 @@ PY
 (cd "$work/rgb" && "$RAR4" a -r -idq -ma4 -m3 -mcc+ "$out/seed-rar4-flt-rgb.rar" book)
 (cd "$work/ppm" && "$RAR4" a -r -idq -ma4 -m3 -mc63:1t+ "$out/seed-rar4-mct-heap.rar" book)
 (cd "$work/restart" && "$RAR4" a -r -idq -ma4 -m3 -mc5:1t+ "$out/seed-rar4-mct-restart.rar" book)
+# -mct, not -mct+: rar must be free to pack the code with LZ.
+(cd "$work/mct-solid" && "$RAR4" a -r -idq -ma4 -m3 -s -mct "$out/seed-rar4-mct-solid.rar" book)
 (cd "$work/e8" && "$RAR5" a -r -idq -ma5 -m3 -mce+ "$out/seed-rar5-flt-e8.rar" book)
 (cd "$work/audio" && "$RAR5" a -r -idq -ma5 -m3 -mca+ "$out/seed-rar5-flt-audio.rar" book)
 (cd "$work/delta" && "$RAR5" a -r -idq -ma5 -m3 -mc4d+ "$out/seed-rar5-flt-delta.rar" book)
@@ -198,6 +230,123 @@ while i < len(b):
 open(path, "wb").write(b)
 PY
 "$RAR5" t -idq "$out/seed-rar5-wrap-flt.rar"
+
+# Solid RAR5: entry 2 continues the stream. rar never grows the window
+# inside a solid stream, so the header of entry 3 is patched to claim a
+# 1 MB dictionary: the decoder refuses it (UnRAR: "Not enough memory").
+# rar tests the archive before the patch.
+(cd "$work/solid" && "$RAR5" a -r -idq -ma5 -m3 -s -md128k -qo- "$out/seed-rar5-solid-grow.rar" book)
+"$RAR5" t -idq "$out/seed-rar5-solid-grow.rar"
+python3 - "$out/seed-rar5-solid-grow.rar" <<'PY'
+import sys, zlib
+def vint(b, i):
+    value = shift = 0
+    while True:
+        c = b[i]; i += 1
+        value |= (c & 0x7F) << shift; shift += 7
+        if c < 0x80:
+            return value, i
+def encode(value):
+    out = bytearray()
+    while value >= 0x80:
+        out.append(value & 0x7F | 0x80); value >>= 7
+    return bytes(out + bytes([value]))
+path = sys.argv[1]
+b = bytearray(open(path, "rb").read())
+i, files = 8, 0
+while i < len(b):
+    size, h = vint(b, i + 4)
+    end = h + size
+    kind, j = vint(b, h)
+    flags, j = vint(b, j)
+    if flags & 1:
+        _, j = vint(b, j)
+    data = 0
+    if flags & 2:
+        data, j = vint(b, j)
+    if kind == 2:
+        if files == 2:
+            file_flags, j = vint(b, j)
+            _, j = vint(b, j)  # unpacked size
+            _, j = vint(b, j)  # attributes
+            j += 4 * bool(file_flags & 2) + 4 * bool(file_flags & 4)  # mtime, CRC
+            info, k = vint(b, j)
+            info = info & ~(0x1F << 10) | 3 << 10  # 128 KB << 3
+            header = b[h:j] + encode(info) + b[k:end]
+            block = encode(len(header)) + header
+            b[i:end] = zlib.crc32(block).to_bytes(4, "little") + block
+            end = i + 4 + len(block)
+        files += 1
+    if kind == 5:
+        break
+    i = end + data
+open(path, "wb").write(b)
+PY
+
+# Too many filters: rar never has 8192 filters waiting at once, so this
+# RAR5 seed is written by hand. One LZ block whose tables code only two
+# symbols, 0 (a zero literal) and 256 (a filter), with one bit each; 8200
+# filter records, each for 4 bytes 200 bytes ahead. None can run before
+# the data reaches it, so at 8192 the decoder writes out, still holds them
+# all and drops them. Then 16 literals, short of every filter block. rar
+# 7.23 must extract exactly those 16 zeros.
+python3 - "$out/seed-rar5-flt-overflow.rar" "$work/overflow.expected" <<'PY'
+import struct, sys, zlib
+RECORDS, SIZE = 8200, 16
+out = []
+def put(value, count):
+    out.extend(value >> i & 1 for i in reversed(range(count)))
+# Bit lengths of the 20 table symbols: 1 gets 1 bit, 18 and 19 get 2.
+lengths = [0] * 20
+lengths[1], lengths[18], lengths[19] = 1, 2, 2
+for length in lengths:
+    put(length, 4)
+def zeros(count):
+    while count:
+        n = min(count, 138)
+        if n >= 11:
+            put(0b11, 2); put(n - 11, 7)   # 19: 11 + 7 bits zeros
+        else:
+            put(0b10, 2); put(n - 3, 3)    # 18: 3 + 3 bits zeros
+        count -= n
+# 306 main + 64 distance + 16 low distance + 44 repeat lengths.
+put(0, 1); zeros(255)        # literal 0
+put(0, 1); zeros(429 - 256)  # symbol 256, nothing after it
+for _ in range(RECORDS):
+    put(1, 1)                # symbol 256: a filter
+    put(0, 2); put(200, 8)   # block start, 1 byte
+    put(0, 2); put(4, 8)     # block length, 1 byte
+    put(1, 3)                # E8
+for _ in range(SIZE):
+    put(0, 1)
+bits = len(out)
+out += [0] * (-len(out) % 8)
+data = bytes(int("".join(map(str, out[i:i + 8])), 2) for i in range(0, len(out), 8))
+# Block header: last block, with tables, 2 size bytes, then its checksum.
+flags = 0x80 | 0x40 | 1 << 3 | (bits - 1) % 8
+size = len(data)
+stream = bytes([flags, (0x5A ^ flags ^ size ^ size >> 8) & 0xFF]) + struct.pack("<H", size) + data
+
+def vint(value):
+    b = bytearray()
+    while value >= 0x80:
+        b.append(value & 0x7F | 0x80); value >>= 7
+    return bytes(b + bytes([value]))
+def header(body):
+    block = vint(len(body)) + body
+    return struct.pack("<I", zlib.crc32(block)) + block
+name = b"overflow.bin"
+unpacked = bytes(SIZE)
+# File header with a data area and CRC32; attributes 0x20; RAR 5.0, -m3,
+# 128 KB dictionary; Windows.
+file_head = (vint(2) + vint(2) + vint(len(stream)) + vint(4) + vint(SIZE) + vint(0x20)
+             + struct.pack("<I", zlib.crc32(unpacked)) + vint(3 << 7) + vint(0)
+             + vint(len(name)) + name)
+open(sys.argv[1], "wb").write(b"Rar!\x1a\x07\x01\x00" + header(vint(1) + vint(0) + vint(0))
+    + header(file_head) + stream + header(vint(5) + vint(0) + vint(0)))
+open(sys.argv[2], "wb").write(unpacked)
+PY
+"$RAR5" p -inul "$out/seed-rar5-flt-overflow.rar" | cmp - "$work/overflow.expected"
 
 # rar never emits the Itanium filter, so this seed is written by hand: one
 # LZ block of literals with flat tables, after a filter record for the
