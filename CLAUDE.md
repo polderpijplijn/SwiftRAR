@@ -63,6 +63,16 @@ C/C++, no libarchive. Everything in this repo is written in English.
   are cut at 64 KB, so the RAR5 fixtures only seed their first blocks).
   After the review hardening (issue #2): 108K runs in 5 min, coverage
   2300, no findings.
+  Overnight 2026-10-16: 5.77M runs in about 5 h, coverage 2497, no
+  findings. A coverage report showed the filter fixtures never got past
+  the 64 KB cut: RAR5Filters 0%, RarVMFilters 19%, PPMdHeap 58% of lines.
+  `Fuzz/seeds` (from `Tools/fixtures/make-fuzz-seeds.sh`) holds small
+  filter and PPMd-heap archives under 64 KB; alone they reach 75%, 84% and
+  88%. Only RAR5 ARM and the RAR4 Itanium helpers stay unreached (rar
+  never emits them). Measure coverage with a separate build:
+  `-profile-generate -profile-coverage-mapping` instead of `address`,
+  `--scratch-path` elsewhere, replay the corpus with `-runs=0`, then
+  `llvm-profdata merge` and `llvm-cov report`.
 - CI runs on GitHub-hosted runners only (#6), free for a public repo.
   Never put a self-hosted runner back while `pull_request:` is on: a fork
   PR would run its own code on that machine. Legs: `oldest` = `macos-26`

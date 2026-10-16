@@ -8,6 +8,7 @@
 #
 # Usage: Fuzz/build.sh            build only
 #        Fuzz/build.sh run [args] build, then fuzz with seeds from Tests/Fixtures
+#                                 and Fuzz/seeds
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -34,5 +35,8 @@ if [ "${1:-}" = "run" ]; then
     corpus="$here/corpus"
     mkdir -p "$corpus"
     cp "$here"/../Tests/Fixtures/*.rar "$corpus"/ 2>/dev/null || true
+    # Small seeds under -max_len, so filters and the PPMd heap are reached
+    # (Tools/fixtures/make-fuzz-seeds.sh).
+    cp "$here"/seeds/*.rar "$corpus"/ 2>/dev/null || true
     "$binary" "$corpus" -max_len=65536 "$@"
 fi

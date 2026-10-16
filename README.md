@@ -258,7 +258,7 @@ it with `TOOLCHAINS`, then run:
 
 ```sh
 Fuzz/build.sh        # build
-Fuzz/build.sh run    # build and fuzz, seeded from Tests/Fixtures
+Fuzz/build.sh run    # build and fuzz, seeded from Tests/Fixtures and Fuzz/seeds
 ```
 
 `swift test` also includes a deterministic robustness suite: every truncation
