@@ -29,5 +29,24 @@ public func fuzzTestOneInput(_ start: UnsafeRawPointer, _ count: Int) -> CInt {
     }
     // The full conversion path, into memory.
     _ = try? convertToCBZ(source: source, output: MemoryOutput(), limits: fuzzLimits)
+    fuzzReader(source)
     return 0
+}
+
+/// `RARReader`: every entry in archive order, alternating `extract` and
+/// `data(for:)`, continuing after errors as the API promises. Then the last
+/// entry again: in a solid archive that restarts the stream and skips every
+/// entry before it. At most one pass more than reading in order.
+private func fuzzReader(_ source: DataSource) {
+    guard let reader = try? RARReader(source: source, limits: fuzzLimits) else { return }
+    for entry in reader.entries {
+        if entry.index.isMultiple(of: 2) {
+            try? reader.extract(entry) { _ in }
+        } else {
+            _ = try? reader.data(for: entry)
+        }
+    }
+    if reader.entries.count > 1, let last = reader.entries.last {
+        try? reader.extract(last) { _ in }
+    }
 }

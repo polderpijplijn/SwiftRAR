@@ -25,7 +25,8 @@ xcrun llvm-cov report $bin -instr-profile=$TMPDIR/run.profdata \
     -ignore-filename-regex='(Fuzz/|\.build/)'
 ```
 
-Replaying the corpus takes about four minutes in debug.
+Replaying the corpus takes about eight minutes in debug (four before
+`RARReader` joined the harness).
 
 ## Gaps, most important first
 
@@ -35,10 +36,14 @@ Replaying the corpus takes about four minutes in debug.
    when an entry's output exceeds its window, so seeds need a small
    dictionary (RAR5: 128 KB) and highly repetitive data, staying under
    `-max_len` (64 KB) and the harness limit of 1 MB per entry.
-2. **`RARReader` is not fuzzed at all** (`Sources/SwiftRAR/Reader.swift`,
-   0 %). The harness calls `RARArchive`, `StoredExtractor` and
-   `convertToCBZ`, never `RARReader.init` / `extract` / `data(for:)`.
-   Fix in `Fuzz/Sources/SwiftRARFuzz/FuzzTarget.swift`.
+2. **Done (16-10-2026): `RARReader` in the harness.** `fuzzReader` in
+   `Fuzz/Sources/SwiftRARFuzz/FuzzTarget.swift` reads every entry in order
+   (alternating `extract` and `data(for:)`), then the last one again, which
+   in a solid archive restarts the stream and skips the entries before it.
+   Replaying the same corpus: `Reader.swift` 0 % → 92.7 % of lines, package
+   86.6 % → 88.7 %. Still unreached: the stored branch (lines 90, 122, same
+   cause as the `Convert.swift` side finding below), `init(url:)` and the
+   foreign-entry guard (119). Replay now takes about eight minutes.
 3. **RarVM Itanium filter never runs** (`RarVMFilters.swift` 137–157 plus
    `itaniumBits` / `setItaniumBits`). Already known (CLAUDE.md): RAR 6.24
    never emits Itanium, so the tests use a hand-built bundle. A seed must
@@ -70,6 +75,6 @@ Replaying the corpus takes about four minutes in debug.
 ## Next step
 
 Seeds for gaps 1, 3, 4 and 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
-prefixed `seed-`), `RARReader` in the harness (gap 2), then measure again
+prefixed `seed-`), then measure again
 and run the fuzzer on the new corpus. Plan first: this touches more than
 two files.
