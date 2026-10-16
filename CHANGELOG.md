@@ -5,7 +5,7 @@ All notable changes to SwiftRAR. The format follows
 follow [Semantic Versioning](https://semver.org); while the version is 0.x,
 a minor release may change the API.
 
-## Unreleased
+## 0.2.0 - 2026-10-16
 
 ### Added
 
@@ -22,6 +22,12 @@ a minor release may change the API.
   complete header (#5).
 - Reject entries from another `RARReader` even when their metadata or
   archive contents are identical; entry equality includes the reader (#5).
+- RAR4: an end-of-block marker that asks for new tables now clears the
+  tables-read state, as in UnRAR. A solid entry after a switch from LZ to
+  PPMd no longer skips its PPMd header and fails with `corruptData` (#8).
+- PPMd: reuse the heap when a new block asks for a different memory size
+  instead of allocating and zeroing a new one, so alternating sizes no
+  longer make a small input slow to reject (#9).
 
 ### Changed
 

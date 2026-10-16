@@ -13,7 +13,7 @@ SwiftRAR is a reader only. It never creates RAR archives.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/polderpijplijn/SwiftRAR.git", from: "0.1.0"),
+    .package(url: "https://github.com/polderpijplijn/SwiftRAR.git", from: "0.2.0"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: [
