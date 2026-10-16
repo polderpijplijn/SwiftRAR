@@ -69,7 +69,10 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `Fuzz/seeds` (from `Tools/fixtures/make-fuzz-seeds.sh`) holds small
   filter and PPMd-heap archives under 64 KB; alone they reach 75%, 84% and
   88%. Only RAR5 ARM and the RAR4 Itanium helpers stay unreached (rar
-  never emits them). Measure coverage with a separate build:
+  never emits them). Second overnight 2026-10-16 with those seeds: 5.1M
+  runs in 6.5 h, no findings, 86.6% of package lines; the remaining gaps
+  (window wrap-around, `RARReader` not in the harness, PPMd restarts) and
+  the next step are in `docs/fuzz-coverage-gaps.md`. Measure coverage with a separate build:
   `-profile-generate -profile-coverage-mapping` instead of `address`,
   `--scratch-path` elsewhere, replay the corpus with `-runs=0`, then
   `llvm-profdata merge` and `llvm-cov report`.

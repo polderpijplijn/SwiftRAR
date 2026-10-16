@@ -1,0 +1,75 @@
+# Fuzz coverage gaps
+
+Measured 16-10-2026 by replaying `Fuzz/corpus` (2028 inputs, after a 6.5 h
+run with ASan: 5.1 M executions, no findings) against a coverage build.
+
+Source coverage of the package: **86.6 % lines, 82.6 % regions, 83.9 %
+functions.** The decoders are well covered (Unpack29 96 %, Unpack50 93 %,
+PPMd 98 %, RAR5 filters 100 %). The gaps below are what remains.
+
+## How to measure
+
+Run outside the Claude Code sandbox: SwiftPM's build service cannot write
+its manifest inside it.
+
+```sh
+export TOOLCHAINS=$(plutil -extract CFBundleIdentifier raw \
+    ~/Library/Developer/Toolchains/swift-latest.xctoolchain/Info.plist)
+swift build -c debug --package-path Fuzz --scratch-path Fuzz/.build/cov \
+    -Xswiftc -sanitize=fuzzer -Xswiftc -profile-generate \
+    -Xswiftc -profile-coverage-mapping -Xswiftc -parse-as-library
+bin=Fuzz/.build/cov/out/Products/Debug/SwiftRARFuzz
+LLVM_PROFILE_FILE=$TMPDIR/run.profraw $bin Fuzz/corpus -runs=0 -max_len=65536 -timeout=60
+xcrun llvm-profdata merge -sparse $TMPDIR/run.profraw -o $TMPDIR/run.profdata
+xcrun llvm-cov report $bin -instr-profile=$TMPDIR/run.profdata \
+    -ignore-filename-regex='(Fuzz/|\.build/)'
+```
+
+Replaying the corpus takes about four minutes in debug.
+
+## Gaps, most important first
+
+1. **Window wrap-around.** Copy and filter paths that cross the end of the
+   window back to its start: `Unpack29.swift` 671–672, `Unpack50.swift`
+   301–307, 480–482, 511–512. Classic off-by-one territory. Reached only
+   when an entry's output exceeds its window, so seeds need a small
+   dictionary (RAR5: 128 KB) and highly repetitive data, staying under
+   `-max_len` (64 KB) and the harness limit of 1 MB per entry.
+2. **`RARReader` is not fuzzed at all** (`Sources/SwiftRAR/Reader.swift`,
+   0 %). The harness calls `RARArchive`, `StoredExtractor` and
+   `convertToCBZ`, never `RARReader.init` / `extract` / `data(for:)`.
+   Fix in `Fuzz/Sources/SwiftRARFuzz/FuzzTarget.swift`.
+3. **RarVM Itanium filter never runs** (`RarVMFilters.swift` 137–157 plus
+   `itaniumBits` / `setItaniumBits`). Already known (CLAUDE.md): RAR 6.24
+   never emits Itanium, so the tests use a hand-built bundle. A seed must
+   be hand-built the same way.
+4. **PPMd under memory pressure.** `restartAfterOverflow`
+   (`PPMdModel.swift` 811) and the heap split at `PPMdHeap.swift` 273–275
+   never run: the model never fills up. Seed: PPMd with the smallest
+   memory size and enough varied data.
+5. **Solid continuation and mid-stream flushes.** PPMd solid
+   (`Unpack29.swift` 189), RAR5 solid (`Unpack50.swift` 144–147), a solid
+   stream broken by an earlier entry (`RARDecoder.swift` 130), the flush
+   paths (`Unpack29.swift` 214–217, `Unpack50.swift` 188–189) and the
+   too-many-filters drop (`Unpack50.swift` 426–428).
+6. **RAR5 header branches.** RAR7 dictionary encoding
+   (`RAR5Parser.swift` 180–184), encryption flags (84, 206), Unix and
+   Windows timestamps (154, 247–251).
+
+## Side findings
+
+- `RARCore/BitReader.swift` and `Huffman.decodeSymbol(from: inout
+  BitReader)` show 0 %: they are the bit-by-bit reference for the tests,
+  the decoders use `StreamBitReader`. Not a fuzz gap.
+- In `convertToCBZ` the stored-entry branch (`Convert.swift` 89) is never
+  reached, although `StoredExtractor` itself is covered through the
+  harness's own loop. Cause not investigated.
+- The ZIP pass-through (`copyZIP`) is never reached. Low risk: it only
+  copies bytes.
+
+## Next step
+
+Seeds for gaps 1, 3, 4 and 5 (via `Tools/fixtures/make-fuzz-seeds.sh`,
+prefixed `seed-`), `RARReader` in the harness (gap 2), then measure again
+and run the fuzzer on the new corpus. Plan first: this touches more than
+two files.
