@@ -26,6 +26,10 @@
 #                          dictionary, which the decoder refuses
 #   seed-rar5-flt-overflow built by hand: 8200 waiting filters, so the
 #                          decoder drops them (see below)
+#   seed-rar5-enc-header   encrypted headers (-hp), refused at once
+#   seed-rar5-enc-file     encrypted data (-p), an encryption record
+#   seed-rar5-time         mtime in the file header, and a time record
+#                          patched to a Windows FILETIME (see below)
 # rar never emits the RAR5 ARM filter either (see make-fixtures.sh), so it
 # has no seed. The seed- prefix keeps them from overwriting the fixtures of
 # the same name in the corpus.
@@ -282,6 +286,87 @@ while i < len(b):
     i = end + data
 open(path, "wb").write(b)
 PY
+
+# Encryption: -hp encrypts the headers, so the parser meets an encryption
+# header and refuses the archive; -p encrypts only the data, so the file
+# headers carry an encryption record.
+mkdir -p "$work/enc/book"
+printf 'secret page\n' > "$work/enc/book/1.txt"
+(cd "$work/enc" && "$RAR5" a -r -idq -ma5 -m3 -hpswiftrar -qo- "$out/seed-rar5-enc-header.rar" book)
+(cd "$work/enc" && "$RAR5" a -r -idq -ma5 -m3 -pswiftrar -qo- "$out/seed-rar5-enc-file.rar" book)
+"$RAR5" t -idq -pswiftrar "$out/seed-rar5-enc-header.rar"
+"$RAR5" t -idq -pswiftrar "$out/seed-rar5-enc-file.rar"
+
+# Timestamps: rar puts a whole-second mtime into the file header (Unix time
+# flag) and one with nanoseconds into a time record, always in Unix format.
+# The record of 1.txt is patched to a Windows FILETIME of the same instant;
+# rar tests the archive and lists both times after the patch.
+mkdir -p "$work/time/book"
+printf 'first page\n' > "$work/time/book/1.txt"
+printf 'second page\n' > "$work/time/book/2.txt"
+touch -d 2024-05-17T12:34:56.5Z "$work/time/book/1.txt"
+touch -d 2024-05-17T12:34:56Z "$work/time/book/2.txt" "$work/time/book"
+(cd "$work/time" && "$RAR5" a -r -idq -ma5 -m3 -qo- "$out/seed-rar5-time.rar" book)
+python3 - "$out/seed-rar5-time.rar" <<'PY'
+import struct, sys, zlib
+def vint(b, i):
+    value = shift = 0
+    while True:
+        c = b[i]; i += 1
+        value |= (c & 0x7F) << shift; shift += 7
+        if c < 0x80:
+            return value, i
+def encode(value):
+    out = bytearray()
+    while value >= 0x80:
+        out.append(value & 0x7F | 0x80); value >>= 7
+    return bytes(out + bytes([value]))
+path = sys.argv[1]
+b = bytearray(open(path, "rb").read())
+i, patched = 8, False
+while i < len(b):
+    size, h = vint(b, i + 4)
+    end = h + size
+    kind, j = vint(b, h)
+    flags, j = vint(b, j)
+    extra = data = 0
+    if flags & 1:
+        extra, j = vint(b, j)
+    if flags & 2:
+        data, j = vint(b, j)
+    if kind == 2 and b[h:end].find(b"book/1.txt") >= 0:
+        fixed, records, k = b[j:end - extra], bytearray(), end - extra
+        while k < end:
+            rsize, r = vint(b, k)
+            rend = r + rsize
+            rtype, r = vint(b, r)
+            if rtype == 3:
+                tflags, r = vint(b, r)
+                assert tflags & 0x13 == 0x13, tflags  # Unix, mtime, ns
+                seconds, = struct.unpack_from("<I", b, r)
+                nanos, = struct.unpack_from("<I", b, r + 4 * bin(tflags & 0x0E).count("1"))
+                filetime = (seconds + 11_644_473_600) * 10_000_000 + nanos // 100
+                body = encode(3) + encode(0x02) + struct.pack("<Q", filetime)
+                records += encode(len(body)) + body
+                patched = True
+            else:
+                records += b[k:rend]
+            k = rend
+        head = encode(kind) + encode(flags) + encode(len(records))
+        if flags & 2:
+            head += encode(data)
+        header = head + fixed + records
+        block = encode(len(header)) + header
+        b[i:end] = zlib.crc32(block).to_bytes(4, "little") + block
+        end = i + 4 + len(block)
+    if kind == 5:
+        break
+    i = end + data
+assert patched
+open(path, "wb").write(b)
+PY
+"$RAR5" t -idq "$out/seed-rar5-time.rar"
+TZ=UTC "$RAR5" lt "$out/seed-rar5-time.rar" | grep -c '2024-05-17 12:34:56' | grep -qx 3
 
 # Too many filters: rar never has 8192 filters waiting at once, so this
 # RAR5 seed is written by hand. One LZ block whose tables code only two

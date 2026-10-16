@@ -75,6 +75,9 @@ C/C++, no libarchive. Everything in this repo is written in English.
   88%. rar never emits RAR5 ARM or RAR4 Itanium; ARM stays unreached,
   Itanium has the hand-written `seed-rar4-flt-itanium` (a stand-in
   program with the right length and CRC, checked against rar 6.24).
+  rar 7.23 puts a whole-second mtime into the RAR5 file header and one
+  with nanoseconds into a time record, never as Windows FILETIME;
+  `seed-rar5-time` patches one record to FILETIME (gap 6).
   Second overnight 2026-10-16 with those seeds: 5.1M
   runs in 6.5 h, no findings, 86.6% of package lines; the remaining gaps
   (window wrap-around, `RARReader` not in the harness, PPMd restarts) and

@@ -116,8 +116,23 @@ Replaying the corpus takes about eight minutes in debug (four before
    Lines: `RARDecoder.swift` 77.3 % → 84.6 %, `Unpack29.swift` 87.3 % →
    87.8 %, `Unpack50.swift` 91.5 % → 93.4 %, package 84.3 % → 85.4 %
    (seeds only).
-6. **RAR5 header branches.** Encryption flags (84, 206), Unix and
-   Windows timestamps (154, 247–251).
+6. **Done (16-10-2026): RAR5 header branches.** Three small seeds from
+   `make-fuzz-seeds.sh` (150–320 bytes):
+   - `seed-rar5-enc-header` (`-hp`): the encryption header,
+     `RAR5Parser.swift` 84: 0 → 3.
+   - `seed-rar5-enc-file` (`-p`): the encryption record in the file
+     header, 206: 0 → 3.
+   - `seed-rar5-time`: rar 7.23 writes a whole-second mtime into the file
+     header (Unix time flag) and one with nanoseconds into a time record,
+     always in Unix format. The seeds so far all had nanoseconds, so 154
+     was never reached. `2.txt` has a whole-second time (154: 0 → 8);
+     the time record of `1.txt` is patched to a Windows FILETIME of the
+     same instant (247–251: 0 → 4). rar 7.23 tests the patched archive
+     and lists 2024-05-17 12:34:56 for every entry; SwiftRAR reads the
+     same seconds.
+
+   Replaying `Fuzz/seeds` without and with them: `RAR5Parser.swift`
+   88.7 % → 92.8 % of lines, package 85.2 % → 86.3 % (seeds only).
 
 ## Side findings
 
@@ -132,6 +147,6 @@ Replaying the corpus takes about eight minutes in debug (four before
 
 ## Next step
 
-Fix issue #8 (PPMd solid continuation) with `seed-rar4-mct-solid` as
-the regression case, then gap 6, then measure the full corpus again and
-run the fuzzer on it.
+All six gaps are closed (#8 fixed with `seed-rar4-mct-solid` as the
+regression case). Next: measure the full corpus again and run the fuzzer
+on it overnight.
