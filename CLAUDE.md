@@ -82,6 +82,12 @@ C/C++, no libarchive. Everything in this repo is written in English.
   `-profile-generate -profile-coverage-mapping` instead of `address`,
   `--scratch-path` elsewhere, replay the corpus with `-runs=0`, then
   `llvm-profdata merge` and `llvm-cov report`.
+  `fuzzReader` (issue #7) reads in archive order, then up to eight more
+  entries in an order from a hash of the input (backwards, repeats, a
+  sink that throws halfway). `build.sh run` passes `-timeout=10`; a later
+  `-timeout=` overrides it. On 2026-10-16 the existing corpus replays at
+  cov 3366 against 3329 before, at half the speed; 5 min after: 11.8K
+  runs, coverage 3376, no findings.
 - CI runs on GitHub-hosted runners only (#6), free for a public repo.
   Never put a self-hosted runner back while `pull_request:` is on: a fork
   PR would run its own code on that machine. Legs: `oldest` = `macos-26`

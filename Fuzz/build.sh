@@ -38,5 +38,7 @@ if [ "${1:-}" = "run" ]; then
     # Small seeds under -max_len, so filters and the PPMd heap are reached
     # (Tools/fixtures/make-fuzz-seeds.sh).
     cp "$here"/seeds/*.rar "$corpus"/ 2>/dev/null || true
-    "$binary" "$corpus" -max_len=65536 "$@"
+    # A 10 s timeout reports slow inputs instead of libFuzzer's 1200 s
+    # default; a later -timeout= in the arguments overrides it.
+    "$binary" "$corpus" -max_len=65536 -timeout=10 "$@"
 fi
