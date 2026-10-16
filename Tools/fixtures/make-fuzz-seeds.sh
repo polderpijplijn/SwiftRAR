@@ -30,6 +30,10 @@
 #   seed-rar5-enc-file     encrypted data (-p), an encryption record
 #   seed-rar5-time         mtime in the file header, and a time record
 #                          patched to a Windows FILETIME (see below)
+# Not made here: seed-rar4-mct-resize (issue #9), 128 PPMd resets at
+# alternating memory sizes. PPMdTests.testAlternatingMemoryBlocks builds
+# it with RAR4Builder and compares the committed copy byte for byte, so
+# this script leaves it in place.
 # rar never emits the RAR5 ARM filter either (see make-fixtures.sh), so it
 # has no seed. The seed- prefix keeps them from overwriting the fixtures of
 # the same name in the corpus.
@@ -65,8 +69,9 @@ out="$root/Fuzz/seeds"
 work="$(mktemp -d "${TMPDIR:-/tmp}/swiftrar-seeds.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$out"
-# `rar a` adds to an existing archive, so start clean.
-rm -f "$out"/*.rar
+# `rar a` adds to an existing archive, so start clean. Keep the seeds this
+# script does not make (see the list above).
+find "$out" -name '*.rar' ! -name seed-rar4-mct-resize.rar -delete
 
 python3 - "$work" <<'PY'
 import math, os, random, struct, sys
