@@ -196,6 +196,107 @@ final class PPMdTests: XCTestCase {
 
     // MARK: - Suballocator
 
+    /// Issue #9B: eight input bytes can reset the model at a different size
+    /// without producing output. These fixed blocks decode escape 0 with
+    /// escape character 0; the last block decodes escape 2 (end of file).
+    func testAlternatingMemoryBlocks() throws {
+        var packed: [UInt8] = []
+        let blocks = 128
+        for index in 0..<blocks {
+            packed += [0xE3, index.isMultiple(of: 2) ? 0xFF : 0xFE, 0, 0, 0, 0, 0, 0]
+        }
+        packed += [0xE3, 0xFE, 0, 0, 5, 0xDC, 0xB6, 0x64, 0]
+        let archive = RAR4Builder.build([
+            TestFile(name: "empty", contents: packed, crcOverride: 0,
+                     unpackedSizeOverride: 0, method: 3)
+        ])
+        let seed = Tools.repositoryRoot.appendingPathComponent("Fuzz/seeds/seed-rar4-mct-resize.rar")
+        XCTAssertEqual(archive, [UInt8](try Data(contentsOf: seed)))
+        let start = Date()
+        let coverage = try decodeAll(archive).ppmdCoverage
+        print("PPMd alternating memory: \(packed.count) packed bytes, \(blocks + 1) resets, \(Date().timeIntervalSince(start)) s")
+        XCTAssertEqual(coverage.resets, blocks + 1)
+        XCTAssertEqual(coverage.escapes[0], blocks)
+        XCTAssertEqual(coverage.escapes[2], 1)
+    }
+
+    /// After a large model, real data must decode in the smaller active
+    /// heap, including allocator exhaustion, glueing and model restarts.
+    func testFixturesAfterHeapShrinks() throws {
+        for name in ["rar4-mct", "rar4-mct-mem"] {
+            let bytes = try fixture(name)
+            let archive = try RARArchive(source: DataSource(bytes), limits: .default)
+            var entry = try XCTUnwrap(archive.entries.first { !$0.isStored && !$0.isDirectory })
+            let start = Int(entry.dataOffset)
+            // Escape 0 with the default escape character 2, so the fixture
+            // keeps its original escape character when its header omits it.
+            let packed = [UInt8]([0xA3, 0xFF, 1, 0xFE, 1, 0xFE, 0, 0])
+                + Array(bytes[start..<(start + Int(entry.packedSize))])
+            // Preserve the original dictionary size as well as output size
+            // and CRC: these PPMd streams can also contain LZ matches.
+            entry.dataOffset = 0
+            entry.packedSize = UInt64(packed.count)
+            let session = RARDecoder.Session(limits: .default)
+            try session.decode(entry, from: DataSource(packed)) { _ in }
+            let coverage = session.ppmdCoverage
+            XCTAssertGreaterThanOrEqual(coverage.resets, 2)
+            XCTAssertGreaterThanOrEqual(coverage.escapes[0, default: 0], 1)
+            if name == "rar4-mct-mem" {
+                XCTAssertGreaterThan(coverage.restarts, 0)
+                XCTAssertGreaterThan(coverage.glueRuns, 0)
+                XCTAssertGreaterThan(coverage.textAreaAllocations, 0)
+            }
+        }
+    }
+
+    func testHeapReusesLargerBuffer() throws {
+        var heap = PPMdHeap()
+        heap.start(megabytes: 2)
+        let capacity = heap.bytes.count
+        try heap.setByte(PPMdHeap.base, 0xA5)
+        for megabytes in [1, 2, 1, 2] {
+            heap.start(megabytes: megabytes)
+            heap.reset()
+            XCTAssertEqual(heap.bytes.count, capacity)
+            XCTAssertEqual(try heap.byte(PPMdHeap.base), 0xA5, "start must not zero the reused buffer")
+            XCTAssertEqual(heap.allocatorSize, megabytes << 20)
+        }
+        heap.start(megabytes: 3)
+        XCTAssertGreaterThan(heap.bytes.count, capacity)
+        heap.stop()
+        XCTAssertTrue(heap.bytes.isEmpty)
+        XCTAssertEqual(heap.allocatorSize, 0)
+        XCTAssertEqual(heap.heapEnd, 0)
+    }
+
+    func testShrunkHeapChecksActiveBounds() throws {
+        var heap = PPMdHeap()
+        heap.start(megabytes: 2)
+        heap.start(megabytes: 1)
+        heap.reset()
+        let end = heap.heapEnd + PPMdHeap.unitSize
+        XCTAssertGreaterThan(heap.bytes.count, end)
+        try heap.setByte(end - 1, 0xA5)
+        XCTAssertEqual(try heap.byte(end - 1), 0xA5)
+        try heap.setU16(end - 2, 0x1234)
+        XCTAssertEqual(try heap.u16(end - 2), 0x1234)
+        try heap.setU32(end - 4, 0x12345678)
+        XCTAssertEqual(try heap.u32(end - 4), 0x12345678)
+        try heap.copyBytes(from: end - 4, to: PPMdHeap.base, count: 4)
+        try heap.copyBytes(from: PPMdHeap.base, to: end - 4, count: 4)
+        XCTAssertThrowsError(try heap.byte(end))
+        XCTAssertThrowsError(try heap.setByte(end, 0))
+        XCTAssertThrowsError(try heap.u16(end - 1))
+        XCTAssertThrowsError(try heap.setU16(end - 1, 0))
+        XCTAssertThrowsError(try heap.u32(end - 3))
+        XCTAssertThrowsError(try heap.setU32(end - 3, 0))
+        XCTAssertThrowsError(try heap.copyBytes(from: end - 3, to: PPMdHeap.base, count: 4))
+        XCTAssertThrowsError(try heap.copyBytes(from: PPMdHeap.base, to: end - 3, count: 4))
+        heap.stop()
+        XCTAssertThrowsError(try heap.byte(PPMdHeap.base))
+        XCTAssertThrowsError(try heap.setByte(PPMdHeap.base, 0))
+    }
+
     /// Random allocations, expansions, shrinks and frees, in a heap small
     /// enough that glueing and the text-area path both run. Every live block
     /// carries a pattern; no block may overlap another or lose its pattern.

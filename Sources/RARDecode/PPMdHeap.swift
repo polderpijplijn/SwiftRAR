@@ -64,6 +64,9 @@ struct PPMdHeap {
     /// zero when nothing is allocated.
     private(set) var allocatorSize = 0
     private(set) var heapEnd = 0
+    /// Active bytes, including the sentinel and trailing guard unit. The
+    /// retained buffer can be larger after a model requests less memory.
+    private var activeByteCount = 0
 
     var pText = 0
     private(set) var unitsStart = 0
@@ -81,39 +84,39 @@ struct PPMdHeap {
 
     @inline(__always)
     func byte(_ offset: Int) throws -> Int {
-        guard offset >= Self.base, offset < bytes.count else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount else { throw RARError.corruptData("PPMd reference") }
         return Int(bytes[offset])
     }
 
     @inline(__always)
     mutating func setByte(_ offset: Int, _ value: Int) throws {
-        guard offset >= Self.base, offset < bytes.count else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount else { throw RARError.corruptData("PPMd reference") }
         bytes[offset] = UInt8(truncatingIfNeeded: value)
     }
 
     @inline(__always)
     func u16(_ offset: Int) throws -> Int {
-        guard offset >= Self.base, offset < bytes.count - 1 else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount - 1 else { throw RARError.corruptData("PPMd reference") }
         return Int(bytes[offset]) | Int(bytes[offset + 1]) << 8
     }
 
     @inline(__always)
     mutating func setU16(_ offset: Int, _ value: Int) throws {
-        guard offset >= Self.base, offset < bytes.count - 1 else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount - 1 else { throw RARError.corruptData("PPMd reference") }
         bytes[offset] = UInt8(truncatingIfNeeded: value)
         bytes[offset + 1] = UInt8(truncatingIfNeeded: value >> 8)
     }
 
     @inline(__always)
     func u32(_ offset: Int) throws -> Int {
-        guard offset >= Self.base, offset < bytes.count - 3 else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount - 3 else { throw RARError.corruptData("PPMd reference") }
         return Int(bytes[offset]) | Int(bytes[offset + 1]) << 8
             | Int(bytes[offset + 2]) << 16 | Int(bytes[offset + 3]) << 24
     }
 
     @inline(__always)
     mutating func setU32(_ offset: Int, _ value: Int) throws {
-        guard offset >= Self.base, offset < bytes.count - 3 else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= Self.base, offset < activeByteCount - 3 else { throw RARError.corruptData("PPMd reference") }
         bytes[offset] = UInt8(truncatingIfNeeded: value)
         bytes[offset + 1] = UInt8(truncatingIfNeeded: value >> 8)
         bytes[offset + 2] = UInt8(truncatingIfNeeded: value >> 16)
@@ -124,7 +127,7 @@ struct PPMdHeap {
     mutating func copyBytes(from source: Int, to target: Int, count: Int) throws {
         guard count > 0 else { return }
         guard source >= Self.base, target >= Self.base,
-              source <= bytes.count - count, target <= bytes.count - count else {
+              source <= activeByteCount - count, target <= activeByteCount - count else {
             throw RARError.corruptData("PPMd reference")
         }
         for index in 0..<count {
@@ -150,7 +153,7 @@ struct PPMdHeap {
 
     private func blockField(_ block: Int, _ field: Int, size: Int) throws -> Int {
         let offset = block + field
-        guard offset >= 0, offset <= bytes.count - size else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= 0, offset <= activeByteCount - size else { throw RARError.corruptData("PPMd reference") }
         var value = 0
         for index in 0..<size { value |= Int(bytes[offset + index]) << (8 * index) }
         return value
@@ -158,7 +161,7 @@ struct PPMdHeap {
 
     private mutating func setBlockField(_ block: Int, _ field: Int, size: Int, _ value: Int) throws {
         let offset = block + field
-        guard offset >= 0, offset <= bytes.count - size else { throw RARError.corruptData("PPMd reference") }
+        guard offset >= 0, offset <= activeByteCount - size else { throw RARError.corruptData("PPMd reference") }
         for index in 0..<size { bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (8 * index)) }
     }
 
@@ -189,14 +192,19 @@ struct PPMdHeap {
 
     // MARK: - Allocator
 
-    /// `StartSubAllocator`: (re)allocates `megabytes` MiB unless the heap
-    /// already has that size.
+    /// `StartSubAllocator`: grows the buffer only when needed. Alternating
+    /// memory sizes must not allocate and zero a large heap on every block.
+    /// `reset` and model initialization rebuild the active allocator state,
+    /// just as they already do for consecutive blocks of the same size.
     mutating func start(megabytes: Int) {
         let size = megabytes << 20
         if allocatorSize == size { return }
         let allocSize = size / Self.unitSize * Self.unitSize + 2 * Self.unitSize
-        bytes = [UInt8](repeating: 0, count: Self.base + allocSize)
-        heapEnd = Self.base + allocSize - Self.unitSize
+        activeByteCount = Self.base + allocSize
+        if bytes.count < activeByteCount {
+            bytes = [UInt8](repeating: 0, count: activeByteCount)
+        }
+        heapEnd = activeByteCount - Self.unitSize
         allocatorSize = size
     }
 
@@ -205,6 +213,7 @@ struct PPMdHeap {
         bytes = []
         allocatorSize = 0
         heapEnd = 0
+        activeByteCount = 0
     }
 
     /// `InitSubAllocator`.

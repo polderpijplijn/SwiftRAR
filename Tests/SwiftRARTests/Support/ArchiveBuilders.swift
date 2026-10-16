@@ -10,7 +10,7 @@ struct TestFile {
     var isDirectory = false
     /// Overrides the stored CRC (to produce a data-CRC mismatch).
     var crcOverride: UInt32?
-    /// Overrides the unpacked size in the RAR5 header (default: the data size).
+    /// Overrides the unpacked size in the header (default: the data size).
     var unpackedSizeOverride: UInt64?
     /// Overrides the method (0 = store); the data is still written raw.
     var method = 0
@@ -83,7 +83,7 @@ enum RAR4Builder {
             let data = file.isDirectory ? [] : file.contents
             var body: [UInt8] = []
             body.le32(UInt32(truncatingIfNeeded: data.count))
-            body.le32(UInt32(truncatingIfNeeded: data.count))
+            body.le32(UInt32(truncatingIfNeeded: file.unpackedSizeOverride ?? UInt64(data.count)))
             body.append(options.hostOS)
             body.le32(file.crcOverride ?? CRC32.checksum(data))
             body.le32(options.dosTime)
@@ -93,7 +93,7 @@ enum RAR4Builder {
             body.le32(file.isDirectory ? 0o40755 | 0x10 : options.attributes)
             if options.large {
                 body.le32(UInt32(UInt64(data.count) >> 32))
-                body.le32(UInt32(UInt64(data.count) >> 32))
+                body.le32(UInt32((file.unpackedSizeOverride ?? UInt64(data.count)) >> 32))
             }
             body += nameBytes
             out += block(type: file.isService ? 0x7A : 0x74, flags: flags, body: body,
